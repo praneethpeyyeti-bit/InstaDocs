@@ -1,0 +1,12 @@
+<Activity x:Class="PostToFinance"
+  xmlns="http://schemas.microsoft.com/netfx/2009/xaml/activities"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <x:Members>
+    <x:Property Name="in_Invoice" Type="InArgument(x:Object)" />
+  </x:Members>
+  <Sequence DisplayName="Post To Finance Sequence">
+    <TypeInto DisplayName="Type Invoice Number" InformativeScreenshot="shot1.png" />
+    <Click DisplayName="Click Submit" />
+    <GetText DisplayName="Get Confirmation Id" />
+  </Sequence>
+</Activity>

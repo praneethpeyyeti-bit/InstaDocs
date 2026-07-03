@@ -1,0 +1,6 @@
+{
+  "Name": "InvoiceProcessing",
+  "ProjectType": "Process",
+  "Description": "Reads invoices from an inbox, validates them, and posts approved invoices to the finance system.",
+  "MainFile": "Main.xaml"
+}

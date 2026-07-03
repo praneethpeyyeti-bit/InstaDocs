@@ -1,0 +1,17 @@
+{
+  "name": "instadocs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turn an existing RPA/automation project into a Process Design Document + Test Case Document.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "demo": "node packages/core/dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

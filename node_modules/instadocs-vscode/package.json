@@ -1,0 +1,91 @@
+{
+  "name": "instadocs-vscode",
+  "displayName": "InstaDocs",
+  "description": "Generate a Solution Design Document + Test Case Document from an RPA/automation project.",
+  "version": "0.1.0",
+  "publisher": "instadocs",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://example.com/instadocs.git"
+  },
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "instadocs.generateFromWorkspace",
+        "title": "Generate SDD + Test Cases",
+        "category": "InstaDocs"
+      },
+      {
+        "command": "instadocs.generateWithGateway",
+        "title": "Generate SDD + Test Cases (AI · UiPath LLM Gateway)",
+        "category": "InstaDocs"
+      },
+      {
+        "command": "instadocs.generateFromGitUrl",
+        "title": "Generate SDD + Test Cases from Git URL",
+        "category": "InstaDocs"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "instadocs.generateFromWorkspace",
+          "when": "explorerResourceIsFolder",
+          "group": "instadocs@1"
+        },
+        {
+          "command": "instadocs.generateWithGateway",
+          "when": "explorerResourceIsFolder",
+          "group": "instadocs@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "instadocs.generateFromWorkspace",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "instadocs.generateWithGateway",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "InstaDocs",
+      "properties": {
+        "instadocs.gateway.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "UiPath LLM Gateway chat/completions endpoint URL. Leave empty to auto-derive from your signed-in `uip` session (org/tenant)."
+        },
+        "instadocs.gateway.model": {
+          "type": "string",
+          "default": "anthropic.claude-opus-4-8",
+          "description": "Model id for the LLM Gateway normalized API (e.g. anthropic.claude-opus-4-8, anthropic.claude-sonnet-4-5-20250929-v1:0, anthropic.claude-haiku-4-5-20251001-v1:0)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "package": "node build.js --production && vsce package --no-dependencies --target win32-x64"
+  },
+  "devDependencies": {
+    "@instadocs/core": "0.1.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^22.7.4",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.2"
+  }
+}

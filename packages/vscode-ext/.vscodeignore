@@ -1,0 +1,10 @@
+# Exclude sources and tooling; ship only the bundled dist/ (incl. dist/assets
+# and dist/node_modules/@resvg).
+src/**
+build.js
+tsconfig.json
+**/*.ts
+**/*.map
+.vscode/**
+/node_modules/**
+.gitignore

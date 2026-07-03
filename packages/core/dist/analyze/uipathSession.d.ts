@@ -1,0 +1,30 @@
+export interface UiPathSession {
+    token?: string;
+    /** Cloud base, e.g. https://cloud.uipath.com (or a staging/alpha host). */
+    baseHost?: string;
+    /** Organization LOGICAL NAME (e.g. "ps_india") — used in the gateway URL path. */
+    organization?: string;
+    /** Tenant name (e.g. "ProfServ"). */
+    tenant?: string;
+}
+/**
+ * Resolve the UiPath session: prefer explicit environment variables, then the
+ * `uip` CLI's `.auth` file. Returns whatever pieces are available.
+ */
+export declare function resolveUiPathSession(): UiPathSession;
+/**
+ * Proactively refresh the signed-in `uip` session token by invoking
+ * `uip login refresh`, then re-read the session. Best-effort: returns the
+ * refreshed session on success, or undefined if the CLI is unavailable / not
+ * logged in. The token is never printed (stdout is discarded).
+ */
+export declare function refreshUiPathSession(): UiPathSession | undefined;
+/**
+ * Build the UiPath LLM Gateway "normalized" chat/completions URL.
+ *
+ * The gateway is fronted by AgentHub (`agenthub_/llm/...`) on `.uipath.com`, and
+ * by Orchestrator (`orchestrator_/llm/...`) elsewhere — matching the official
+ * uipath-langchain SDK's endpoint selection. The path uses the org LOGICAL NAME.
+ * Returns undefined if any piece is missing.
+ */
+export declare function gatewayUrlFromSession(session: UiPathSession): string | undefined;

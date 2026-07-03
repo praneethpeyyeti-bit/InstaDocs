@@ -1,0 +1,38 @@
+<Activity x:Class="Main"
+  xmlns="http://schemas.microsoft.com/netfx/2009/xaml/activities"
+  xmlns:sap2010="http://schemas.microsoft.com/netfx/2010/xaml/activities/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <x:Members>
+    <x:Property Name="in_InboxFolder" Type="InArgument(x:String)" />
+    <x:Property Name="in_MaxAmount" Type="InArgument(x:Double)" />
+    <x:Property Name="out_ProcessedCount" Type="OutArgument(x:Int32)" />
+  </x:Members>
+  <Sequence DisplayName="Main Sequence">
+    <Sequence.Variables>
+      <Variable x:TypeArguments="x:Int32" Name="ProcessedCount" Default="0" />
+      <Variable x:TypeArguments="s:Boolean" Name="IsValid" />
+    </Sequence.Variables>
+    <ReadRange DisplayName="Read Invoices from Excel"
+      sap2010:Annotation.AnnotationText="Loads pending invoices from the shared workbook." />
+    <ForEach DisplayName="For Each Invoice">
+      <TryCatch DisplayName="Try Process Invoice">
+        <Sequence DisplayName="Process One Invoice">
+          <If DisplayName="If Amount Within Limit" Condition="[invoice.Amount &lt;= in_MaxAmount]">
+            <If.Then>
+              <Sequence DisplayName="Approve Path">
+                <InvokeWorkflowFile DisplayName="Post To Finance" WorkflowFileName="PostToFinance.xaml" />
+                <Assign DisplayName="Increment Processed"
+                  sap2010:Annotation.AnnotationText="Counts a successfully posted invoice." />
+              </Sequence>
+            </If.Then>
+            <If.Else>
+              <Throw DisplayName="Throw Amount Exceeds Limit" />
+            </If.Else>
+          </If>
+          <SendMail DisplayName="Send Confirmation Email" />
+        </Sequence>
+      </TryCatch>
+    </ForEach>
+    <LogMessage DisplayName="Log Completed" />
+  </Sequence>
+</Activity>
