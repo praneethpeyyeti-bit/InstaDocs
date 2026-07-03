@@ -35,37 +35,71 @@ export async function fillTestCasesXlsx(
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(templatePath);
-  const ws = wb.getWorksheet('UAT Test Cases') ?? wb.worksheets[0];
+  const tpl = wb.getWorksheet('UAT Test Cases') ?? wb.worksheets[0];
 
-  // Header block: fill what the code knows, clear template sample values
-  // (Process Owner / Robot / Machine are environment details, not in source).
-  ws.getCell('B1').value = model.projectName; // Process Name
+  // Group by project so a multi-project solution gets one sheet per process.
+  const projects = [...new Set(model.testScenarios.map((t) => t.project).filter(Boolean))] as string[];
+
+  if (projects.length < 2) {
+    // Single process → one sheet (keep the template sheet name).
+    fillSheet(tpl, model.projectName, model.testScenarios);
+  } else {
+    // Multi-project → one sheet per project (clone the template sheet), in the
+    // order the projects first appear in the scenario list.
+    const used = new Set<string>();
+    projects.forEach((proj, i) => {
+      const scenarios = model.testScenarios.filter((t) => t.project === proj);
+      const sheetName = uniqueSheetName(proj, used);
+      const ws = i === 0 ? tpl : cloneSheet(wb, tpl, sheetName);
+      if (i === 0) ws.name = sheetName;
+      fillSheet(ws, proj, scenarios);
+    });
+  }
+
+  const out = await wb.xlsx.writeBuffer();
+  return Buffer.from(out);
+}
+
+/** Fill a single worksheet's header block + test-case rows. */
+function fillSheet(ws: ExcelJS.Worksheet, processName: string, scenarios: TestScenario[]): void {
+  ws.getCell('B1').value = processName; // Process Name
   ws.getCell('B2').value = null; // Process Owner
   ws.getCell('B3').value = null; // Robot Name
   ws.getCell('B4').value = null; // Machine Name
 
-  // Status summary counts (all start Not Run since nothing has executed yet).
-  const total = model.testScenarios.length;
+  const total = scenarios.length;
   setIfPresent(ws, 'F1', 0); // Pass
   setIfPresent(ws, 'F2', 0); // Fail (Low)
   setIfPresent(ws, 'F3', 0); // Fail (Med/High)
   setIfPresent(ws, 'F4', total); // Not Run
   setIfPresent(ws, 'F5', total); // Total
 
-  // Capture the styling of the first example row so new rows look native.
   const templateStyles = captureRowStyles(ws, FIRST_DATA_ROW);
-
-  // Clear the grey example rows.
   for (const r of TEMPLATE_EXAMPLE_ROWS) clearRow(ws, r);
+  scenarios.forEach((tc, idx) => writeTestCase(ws, FIRST_DATA_ROW + idx, idx + 1, tc, templateStyles));
+}
 
-  // Write real test cases from FIRST_DATA_ROW downward.
-  model.testScenarios.forEach((tc, idx) => {
-    const rowNum = FIRST_DATA_ROW + idx;
-    writeTestCase(ws, rowNum, idx + 1, tc, templateStyles);
-  });
+/** Clone a worksheet (rows, styles, merges, columns) under a new name. */
+function cloneSheet(wb: ExcelJS.Workbook, source: ExcelJS.Worksheet, name: string): ExcelJS.Worksheet {
+  const target = wb.addWorksheet(name);
+  const id = target.id;
+  // Copy the full worksheet model, then restore this sheet's own identity.
+  target.model = { ...source.model, name, id } as ExcelJS.Worksheet['model'];
+  target.name = name;
+  return target;
+}
 
-  const out = await wb.xlsx.writeBuffer();
-  return Buffer.from(out);
+/** Excel sheet names: ≤31 chars, no []:*?/\, unique within the workbook. */
+function uniqueSheetName(raw: string, used: Set<string>): string {
+  let base = (raw || 'Process').replace(/[[\]:*?/\\]/g, ' ').trim().slice(0, 31) || 'Process';
+  let name = base;
+  let n = 2;
+  while (used.has(name.toLowerCase())) {
+    const suffix = ` (${n++})`;
+    name = base.slice(0, 31 - suffix.length) + suffix;
+  }
+  used.add(name.toLowerCase());
+  return name;
 }
 
 interface CellStyle {

@@ -86,6 +86,9 @@ exports.TestScenarioSchema = zod_1.z.object({
     testData: zod_1.z.string().default(''),
     expectedResult: zod_1.z.string(),
     tracesTo: zod_1.z.string().optional(),
+    /** For a multi-project solution: which project this test belongs to (drives a
+     * separate Excel sheet per process). Empty for a single-process solution. */
+    project: zod_1.z.string().optional(),
 });
 exports.SddModelSchema = zod_1.z.object({
     projectName: zod_1.z.string(),
@@ -94,8 +97,28 @@ exports.SddModelSchema = zod_1.z.object({
     purpose: zod_1.z.string(),
     /** 3.1 – Process overview summary (narrative). */
     summary: zod_1.z.string(),
-    /** 2.1 – Architectural structure (narrative). */
+    /** 2.1 – Architectural structure: a short 1-2 sentence intro. */
     architecture: zod_1.z.string().default(''),
+    /**
+     * Architectural structure broken into labelled points (Pattern, Components,
+     * Data flow, Integrations, Configuration, Error handling, Scalability) so the
+     * section reads as structured bullets instead of one wall of text.
+     */
+    architecturePoints: zod_1.z.array(zod_1.z.object({ aspect: zod_1.z.string(), detail: zod_1.z.string() })).default([]),
+    /**
+     * The main business steps of the process, in execution order — drives the
+     * "High level process flow diagram". Short imperative phrases (business, not
+     * framework plumbing), e.g. "Log in to System1", "Calculate SHA1 hash".
+     */
+    highLevelSteps: zod_1.z.array(zod_1.z.string()).default([]),
+    /**
+     * For a multi-project solution (e.g. Dispatcher / Performer / Reporter): the
+     * high-level business steps of EACH project, so the SDD renders one high-level
+     * flow diagram per project. Empty for a single-project solution.
+     */
+    projectFlows: zod_1.z
+        .array(zod_1.z.object({ project: zod_1.z.string(), steps: zod_1.z.array(zod_1.z.string()).default([]) }))
+        .default([]),
     revisions: zod_1.z.array(Revision).default([]),
     contacts: zod_1.z.array(Contact).default([]),
     sourceDocuments: zod_1.z.array(SourceDoc).default([]),
@@ -108,6 +131,8 @@ exports.SddModelSchema = zod_1.z.object({
     designSpecifications: zod_1.z.string().default(''),
     orchestratorFolders: zod_1.z.string().default(''),
     orchestratorAssets: zod_1.z.array(ItemDesc).default([]),
+    /** Representative JSON of an Orchestrator queue item (from Add/Bulk Add Queue Item). */
+    queueItemJson: zod_1.z.string().default(''),
     designConsiderations: zod_1.z.string().default(''),
     namingConventions: zod_1.z.array(zod_1.z.string()).default([]),
     modules: zod_1.z.array(ModuleRow).default([]),

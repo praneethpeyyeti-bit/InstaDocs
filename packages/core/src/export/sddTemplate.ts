@@ -3,10 +3,11 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { SddModel } from '../model/sdd';
 import { ProcessGraph } from '../model/ir';
-import { renderSwimlane, renderReframeworkStates, renderArchitecture, isReframework, ArchSystem } from './flowchart';
+import { renderProcessFlow, renderReframeworkStates, renderArchitecture, renderHighLevelFlow, renderSolutionFlow, renderCombinedHighLevelFlow, hasHighLevelSteps, isReframework, ArchSystem } from './flowchart';
 import { resolveAsset } from './assets';
 
 const FLOWCHART_MARKER = 'INSTADOCS_FLOWCHART_MAIN';
+const PROJECTS_MARKER = 'INSTADOCS_FLOWCHART_PROJECTS';
 const ARCH_MARKER = 'INSTADOCS_ARCH';
 const EMU_PER_PX = 9525;
 const MAX_IMG_WIDTH_PX = 600;
@@ -47,10 +48,28 @@ export function fillSddDocx(
   // Architecture diagram — robot + the systems it integrates with.
   embedImage(outZip, ARCH_MARKER, 'instadocs-arch.png', renderArchitecture(model.projectName, archSystems(model)), 9301);
 
-  // Process-design diagram — REFramework state machine (4 states) when the
-  // project is REFramework, otherwise the application-segregated swimlane.
-  const flow = isReframework(graph) ? renderReframeworkStates() : renderSwimlane(graph);
-  embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', flow, 9001);
+  // High-level process flow diagram(s):
+  //  - Multi-project solution: a COMBINED end-to-end flow (Dispatcher → queue →
+  //    Performer → …) as the overview, PLUS the per-project flows side by side.
+  //  - Single process (any type — Sequence / REFramework / Flowchart): one
+  //    high-level flow from the LLM business steps; falling back to a branch-
+  //    aware structured flow, then the REFramework states.
+  const solutionFlows = model.projectFlows.filter((f) => hasHighLevelSteps(f.steps));
+  if (solutionFlows.length > 1) {
+    embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', renderSolutionFlow(solutionFlows), 9001);
+    embedImage(outZip, PROJECTS_MARKER, 'instadocs-flow-projects.png', renderCombinedHighLevelFlow(solutionFlows), 9101);
+  } else {
+    const single = hasHighLevelSteps(model.highLevelSteps)
+      ? renderHighLevelFlow(model.projectName, model.highLevelSteps)
+      : solutionFlows.length === 1
+        ? renderHighLevelFlow(solutionFlows[0].project, solutionFlows[0].steps)
+        : isReframework(graph)
+          ? renderReframeworkStates()
+          : renderProcessFlow(graph);
+    embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', single, 9001);
+    // No per-project view for a single process — drop the extra marker/caption.
+    removeMarkerBlock(outZip, PROJECTS_MARKER, 'Per-process high-level flows:');
+  }
 
   return outZip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
@@ -93,6 +112,30 @@ function archSystems(model: SddModel): ArchSystem[] {
   return out.slice(0, 6);
 }
 
+/**
+ * Split a narrative string into clean bullet points: on line breaks / bullet
+ * markers first, and — for a long single paragraph — on sentence boundaries, so
+ * dense sections render as a scannable list instead of a wall of text.
+ */
+/** First sentence of a string (for the cover description). */
+function firstSentence(text: string): string {
+  if (!text) return '';
+  const m = text.match(/^.*?[.!?](\s|$)/);
+  return (m ? m[0] : text).trim();
+}
+
+function bullets(text: string): string[] {
+  if (!text || !text.trim()) return [];
+  let parts = text.split(/\r?\n+/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 1) {
+    if (/\s[•▪]\s/.test(parts[0])) parts = parts[0].split(/\s*[•▪]\s*/);
+    else if (parts[0].length > 160) parts = parts[0].split(/(?<=[.!?])\s+(?=[A-Z0-9"'(])/);
+  }
+  return parts
+    .map((s) => s.replace(/^[-*•▪]\s+/, '').replace(/^\d+[.)]\s+/, '').trim())
+    .filter(Boolean);
+}
+
 function buildData(model: SddModel, generatedOn: string): Record<string, unknown> {
   const orDash = <T,>(arr: T[], make: () => T): T[] => (arr.length ? arr : [make()]);
 
@@ -100,20 +143,27 @@ function buildData(model: SddModel, generatedOn: string): Record<string, unknown
     projectName: model.projectName,
     platformLabel: model.platformLabel,
     generatedOn,
+    coverDescription: firstSentence(model.purpose) || model.summary || model.projectName,
+    queueItemJson: model.queueItemJson,
+    hasQueueItem: !!model.queueItemJson && model.queueItemJson.trim().length > 0,
 
+    // Narrative kept as short paragraphs.
     purpose: model.purpose,
     summary: model.summary,
     architecture: model.architecture,
-    designSpecifications: model.designSpecifications,
+    architecturePoints: model.architecturePoints,
+    // Structural text kept verbatim (trees/paths) with line breaks preserved.
     orchestratorFolders: model.orchestratorFolders,
-    designConsiderations: model.designConsiderations,
-    reporting: model.reporting,
     folderStructure: model.folderStructure,
-    processRuns: model.processRuns,
-    debuggingTips: model.debuggingTips,
-    optimizations: model.optimizations,
-    codeReview: model.codeReview,
-    dataSecurity: model.dataSecurity,
+    // Multi-point sections rendered as bullet lists for readability.
+    designSpecifications: bullets(model.designSpecifications),
+    designConsiderations: bullets(model.designConsiderations),
+    reporting: bullets(model.reporting),
+    processRuns: bullets(model.processRuns),
+    debuggingTips: bullets(model.debuggingTips),
+    optimizations: bullets(model.optimizations),
+    codeReview: bullets(model.codeReview),
+    dataSecurity: bullets(model.dataSecurity),
 
     revisions: orDash(
       model.revisions.length
@@ -143,6 +193,19 @@ function buildData(model: SddModel, generatedOn: string): Record<string, unknown
   function withVersion(l: { name: string; version?: string; purpose?: string }) {
     return { name: l.name, version: l.version ? ` (${l.version})` : '', purpose: l.purpose || '' };
   }
+}
+
+/**
+ * Remove an unused image marker and its italic caption paragraph, so a leftover
+ * "INSTADOCS_*" token never shows up in the document.
+ */
+function removeMarkerBlock(zip: PizZip, marker: string, caption: string): void {
+  let docXml = zip.file('word/document.xml')!.asText();
+  if (!docXml.includes(marker)) return;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  docXml = docXml.replace(new RegExp(`<w:p\\b[^>]*>(?:(?!</w:p>)[\\s\\S])*?${esc(caption)}[\\s\\S]*?</w:p>`), '');
+  docXml = docXml.replace(new RegExp(`<w:p\\b[^>]*>(?:(?!</w:p>)[\\s\\S])*?${esc(marker)}[\\s\\S]*?</w:p>`), '');
+  zip.file('word/document.xml', docXml);
 }
 
 function ensurePngContentType(zip: PizZip): void {

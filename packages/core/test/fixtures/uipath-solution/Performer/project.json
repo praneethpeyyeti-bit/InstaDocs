@@ -1,0 +1,1 @@
+{ "name": "ACME_Performer", "main": "Main.xaml", "dependencies": { "UiPath.System.Activities": "[24.10.0]" } }

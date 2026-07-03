@@ -46,36 +46,94 @@ function main() {
   const zip = new PizZip(fs.readFileSync(SRC));
   let xml = zip.file('word/document.xml').asText();
 
+  // Remove the template's generic sample process diagrams (EMF metafiles — the
+  // swimlane "High Level Design", sample architecture/folder-structure pictures).
+  // They are boilerplate not linked to the parsed process; the real, grounded
+  // architecture + high-level flow diagrams are inserted at the image markers.
+  xml = stripSampleImages(xml, zip);
+
   xml = rewriteTables(xml);
 
   // Prose-only sections -> code/LLM-derived content (heading-style boundaries).
   xml = replaceSectionBody(xml, 'Introduction', para('[[purpose]]'));
-  xml = replaceSectionBody(xml, 'Architectural structure', para('[[architecture]]') + imageBlock('INSTADOCS_ARCH', 'Solution architecture (components and data flow):'));
+  xml = replaceSectionBody(
+    xml,
+    'Architectural structure',
+    para('[[architecture]]') +
+      loopBlock('architecturePoints', '[[aspect]]', ': [[detail]]') +
+      imageBlock('INSTADOCS_ARCH', 'Solution architecture (components and data flow):')
+  );
   xml = replaceSectionBody(xml, 'Summary', para('[[summary]]'));
-  xml = replaceSectionBody(xml, 'Design specifications.', para('[[designSpecifications]]'));
+  xml = replaceSectionBody(xml, 'Design specifications.', bulletList('designSpecifications'));
   xml = replaceSectionBody(xml, 'Orchestrator Folder structure', para('[[orchestratorFolders]]'));
   xml = replaceSectionBody(xml, 'Orchestrator assets', loopBlock('orchestratorAssets', '[[item]]', ': [[desc]]'));
-  xml = replaceSectionBody(xml, 'Initial design considerations', para('[[designConsiderations]]'));
+  xml = replaceSectionBody(xml, 'Initial design considerations', bulletList('designConsiderations'));
   xml = replaceSectionBody(xml, 'Naming conventions', loopBlock('namingConventions', '[[.]]', ''));
-  xml = replaceSectionBody(xml, 'High level process flow diagrams', imageBlock('INSTADOCS_FLOWCHART_MAIN', 'High-level process flow:'));
-  xml = replaceSectionBody(xml, 'Reporting', para('[[reporting]]'));
-  xml = replaceSectionBody(xml, 'Project folder structure', para('[[folderStructure]]'));
-  xml = replaceSectionBody(xml, 'Process runs.', para('[[processRuns]]'));
-  xml = replaceSectionBody(xml, 'Debugging tips', para('[[debuggingTips]]'));
-  xml = replaceSectionBody(xml, 'Code and performance optimization techniques used.', para('[[optimizations]]'));
-  xml = replaceSectionBody(xml, 'Code review, issues, and fixes', para('[[codeReview]]'));
+  xml = replaceSectionBody(
+    xml,
+    'High level process flow diagrams',
+    imageBlock('INSTADOCS_FLOWCHART_MAIN', 'High-level process flow:') +
+      imageBlock('INSTADOCS_FLOWCHART_PROJECTS', 'Per-process high-level flows:')
+  );
+  xml = replaceSectionBody(xml, 'Reporting', bulletList('reporting'));
+  xml = replaceSectionBody(xml, 'Project folder structure', codeBlock('[[folderStructure]]'));
+  xml = replaceSectionBody(xml, 'Process runs.', bulletList('processRuns'));
+  xml = replaceSectionBody(xml, 'Debugging tips', bulletList('debuggingTips'));
+  xml = replaceSectionBody(xml, 'Code and performance optimization techniques used.', bulletList('optimizations'));
+  xml = replaceSectionBody(xml, 'Code review, issues, and fixes', bulletList('codeReview'));
   xml = replaceSectionBody(xml, 'Dependencies', loopBlock('dependencies', '[[name]][[version]]', ': [[purpose]]'));
   xml = replaceSectionBody(xml, 'External libraries', loopBlock('externalLibraries', '[[name]][[version]]', ': [[purpose]]'));
   xml = replaceSectionBody(xml, 'Future improvements', loopBlock('futureImprovements', '[[.]]', ''));
-  xml = replaceSectionBody(xml, 'Data security and privacy considerations', para('[[dataSecurity]]'));
+  xml = replaceSectionBody(xml, 'Data security and privacy considerations', bulletList('dataSecurity'));
   xml = replaceSectionBody(xml, 'Glossary', loopBlock('glossary', '[[term]]', ': [[definition]]'));
 
+  // The "Process design" intro is generic guidance that references the (removed)
+  // sample swim-lane — replace with a short accurate lead-in.
+  xml = replaceSectionBody(
+    xml,
+    'Process design',
+    para('This section describes how the solution is structured into reusable modules and its high-level process flow, including control flow, exception handling and retry mechanisms.')
+  );
+
+  // Cover page placeholders: {PROCESS NAME} → project name, {Description} → blurb.
+  xml = xml.replace(/(<w:t[^>]*>)PROCESS NAME(<\/w:t>)/g, '$1[[projectName]]$2');
+  xml = xml.replace(/(<w:t[^>]*>)\{Description\}(<\/w:t>)/g, '$1[[coverDescription]]$2');
+  xml = xml.replace(/(<w:t[^>]*>)[{}](<\/w:t>)/g, '$1$2'); // drop stray "{" / "}" runs
+
+  // Queue-item JSON after the Queues table (only rendered when queues are used).
+  xml = insertQueueJson(xml);
+
+  xml = scrubGuidanceParagraphs(xml);
   xml = scrubProse(xml);
 
   zip.file('word/document.xml', xml);
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(OUT, zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
   console.log('Wrote', path.relative(ROOT, OUT));
+}
+
+/** Remove drawings/pictures that reference an .emf sample diagram. */
+function stripSampleImages(xml, zip) {
+  const relsFile = zip.file('word/_rels/document.xml.rels');
+  if (!relsFile) return xml;
+  const rels = relsFile.asText();
+  const emf = new Set();
+  for (const m of rels.matchAll(/Id="([^"]+)"[^>]*Target="[^"]*\.emf"/gi)) emf.add(m[1]);
+  if (!emf.size) return xml;
+
+  const hasEmf = (block) => [...emf].some((id) => block.includes(`"${id}"`));
+  let removed = 0;
+  const strip = (re) => {
+    xml = xml.replace(re, (block) => (hasEmf(block) ? ((removed++), '') : block));
+  };
+  // AlternateContent wraps the drawing + its VML fallback — remove as a unit first.
+  strip(/<mc:AlternateContent>[\s\S]*?<\/mc:AlternateContent>/g);
+  // Sample diagrams are embedded Visio OLE objects (<w:object> with <v:imagedata>).
+  strip(/<w:object\b[\s\S]*?<\/w:object>/g);
+  strip(/<w:drawing>[\s\S]*?<\/w:drawing>/g);
+  strip(/<w:pict>[\s\S]*?<\/w:pict>/g);
+  console.log(`stripped ${removed} sample diagram(s) (EMF)`);
+  return xml;
 }
 
 function rewriteTables(xml) {
@@ -151,6 +209,53 @@ function para(inner) {
   );
 }
 
+/** Monospace paragraph (Consolas) for trees / JSON, preserving whitespace + line breaks. */
+function codeBlock(inner) {
+  return (
+    `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/>` +
+    `<w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="16"/></w:rPr></w:pPr>` +
+    `<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="16"/></w:rPr>` +
+    `<w:t xml:space="preserve">${inner}</w:t></w:r></w:p>`
+  );
+}
+
+/**
+ * Replace everything in the Queues section after the queues table (the template's
+ * sample JSON + guidance) with a conditional, code-derived queue-item JSON block.
+ */
+function insertQueueJson(xml) {
+  const mi = xml.indexOf('[[/queues]]');
+  if (mi < 0) return xml;
+  const end = xml.indexOf('</w:tbl>', mi);
+  if (end < 0) return xml;
+  const at = end + '</w:tbl>'.length;
+  // Drop the sample JSON/guidance up to the next heading.
+  const rest = xml.slice(at);
+  const hIdx = rest.search(/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?w:pStyle w:val="Heading/);
+  const cut = hIdx >= 0 ? at + hIdx : at;
+
+  const openTag = (t) => `<w:p><w:pPr><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">${t}</w:t></w:r></w:p>`;
+  const caption =
+    `<w:p><w:pPr><w:spacing w:before="120"/><w:rPr><w:i/><w:sz w:val="18"/></w:rPr></w:pPr>` +
+    `<w:r><w:rPr><w:i/><w:sz w:val="18"/></w:rPr>` +
+    `<w:t xml:space="preserve">Representative queue item uploaded to Orchestrator (from Add/Bulk Add Queue Item):</w:t></w:r></w:p>`;
+  const block = openTag('[[#hasQueueItem]]') + caption + codeBlock('[[queueItemJson]]') + openTag('[[/hasQueueItem]]');
+  console.log('replaced queue sample with code-derived JSON block');
+  return xml.slice(0, at) + block + xml.slice(cut);
+}
+
+/** Plain bulleted list bound to a string[] loop (one non-bold bullet per item). */
+function bulletList(loopName) {
+  const tagPara = (tag) =>
+    `<w:p><w:pPr><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">${tag}</w:t></w:r></w:p>`;
+  const bullet =
+    `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/>` +
+    `<w:numId w:val="1"/></w:numPr><w:spacing w:after="40" w:line="240" w:lineRule="auto"/>` +
+    `<w:rPr><w:sz w:val="20"/></w:rPr></w:pPr>` +
+    `<w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">[[.]]</w:t></w:r></w:p>`;
+  return tagPara(`[[#${loopName}]]`) + bullet + tagPara(`[[/${loopName}]]`);
+}
+
 /** 3-paragraph loop block (open tag / repeating bullet / close tag). */
 function loopBlock(loopName, boldTag, restTag) {
   const tagPara = (tag) =>
@@ -200,6 +305,25 @@ function replaceSectionBody(xml, headingText, insertXml) {
   const to = ni < ps.length ? ps[ni].start : ps[hi].end;
   console.log(`section "${headingText}": replaced ${ni - hi - 1} paragraph(s)`);
   return xml.slice(0, from) + insertXml + xml.slice(to);
+}
+
+/**
+ * Blank whole paragraphs that are pure template guidance (their combined text is
+ * wrapped in <…>), which per-run scrubbing misses when the < and > sit in
+ * separate runs.
+ */
+function scrubGuidanceParagraphs(xml) {
+  let n = 0;
+  const out = xml.replace(/<w:p\b(?:[^>]*\/>|[\s\S]*?<\/w:p>)/g, (p) => {
+    const text = [...p.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map((m) => m[1]).join('').trim();
+    if (!text || text.includes('[[') || text.includes('INSTADOCS_')) return p;
+    const guidance = /^(&lt;|<)[\s\S]*(&gt;|>)$/.test(text);
+    if (!guidance) return p;
+    n++;
+    return p.replace(/(<w:t(?:\s[^>]*)?>)[\s\S]*?(<\/w:t>)/g, '$1$2');
+  });
+  console.log(`scrub guidance paragraphs: blanked ${n}`);
+  return out;
 }
 
 function scrubProse(xml) {

@@ -33,39 +33,45 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultTestCasesTemplatePath = exports.fillTestCasesXlsx = exports.defaultSddTemplatePath = exports.fillSddDocx = void 0;
+exports.defaultTestCasesTemplatePath = exports.fillTestCasesXlsx = exports.defaultAddTemplatePath = exports.fillAddDocx = exports.defaultSddTemplatePath = exports.fillSddDocx = void 0;
 exports.exportDeliverables = exportDeliverables;
 const fs = __importStar(require("fs"));
 const sddTemplate_1 = require("./sddTemplate");
+const addTemplate_1 = require("./addTemplate");
 const testcasesTemplate_1 = require("./testcasesTemplate");
 /**
  * Fixed output contract:
- *   - SDD        -> Word (.docx)  filled from the branded Solution Design template
- *   - Test Cases -> Excel (.xlsx) filled from the UAT Test Case template
- * No other formats are produced.
+ *   - RPA projects     -> Solution Design Document  (SDD, .docx) + Test Cases (.xlsx)
+ *   - Agentic projects -> Agentic Design Document   (ADD, .docx) + Test Cases (.xlsx)
+ * The Word deliverable is filled from the matching branded template; the Excel
+ * test-case doc is shared. No other formats are produced.
  */
 var sddTemplate_2 = require("./sddTemplate");
 Object.defineProperty(exports, "fillSddDocx", { enumerable: true, get: function () { return sddTemplate_2.fillSddDocx; } });
 Object.defineProperty(exports, "defaultSddTemplatePath", { enumerable: true, get: function () { return sddTemplate_2.defaultSddTemplatePath; } });
+var addTemplate_2 = require("./addTemplate");
+Object.defineProperty(exports, "fillAddDocx", { enumerable: true, get: function () { return addTemplate_2.fillAddDocx; } });
+Object.defineProperty(exports, "defaultAddTemplatePath", { enumerable: true, get: function () { return addTemplate_2.defaultAddTemplatePath; } });
 var testcasesTemplate_2 = require("./testcasesTemplate");
 Object.defineProperty(exports, "fillTestCasesXlsx", { enumerable: true, get: function () { return testcasesTemplate_2.fillTestCasesXlsx; } });
 Object.defineProperty(exports, "defaultTestCasesTemplatePath", { enumerable: true, get: function () { return testcasesTemplate_2.defaultTestCasesTemplatePath; } });
 /** Write both deliverables to disk and return the paths written. */
-async function exportDeliverables(model, graph, generatedOn, outDir, templates = {}) {
+async function exportDeliverables(model, graph, generatedOn, outDir, docType = 'sdd', templates = {}) {
     fs.mkdirSync(outDir, { recursive: true });
     const safe = model.projectName.replace(/[^a-z0-9._-]+/gi, '_');
-    const sddDocx = `${outDir}/${safe}-SDD.docx`;
+    const isAgentic = docType === 'add';
+    const docx = `${outDir}/${safe}-${isAgentic ? 'ADD' : 'SDD'}.docx`;
     const testCasesXlsx = `${outDir}/${safe}-TestCases.xlsx`;
     // Write both independently so a lock on one file (e.g. open in Word) never
     // prevents the other from being produced.
     const errors = [];
-    await writeSafe(sddDocx, () => (0, sddTemplate_1.fillSddDocx)(model, graph, generatedOn), errors);
+    await writeSafe(docx, () => (isAgentic ? (0, addTemplate_1.fillAddDocx)(model, graph, generatedOn) : (0, sddTemplate_1.fillSddDocx)(model, graph, generatedOn)), errors);
     await writeSafe(testCasesXlsx, () => (0, testcasesTemplate_1.fillTestCasesXlsx)({ projectName: model.projectName, testScenarios: model.testScenarios }, templates.testCasesTemplatePath), errors);
     if (errors.length) {
         throw new Error(`InstaDocs could not write ${errors.length} file(s):\n${errors.join('\n')}\n` +
             'If a file is open (e.g. in Word/Excel), close it and try again.');
     }
-    return { sddDocx, testCasesXlsx };
+    return { docx, testCasesXlsx, docType };
 }
 async function writeSafe(filePath, produce, errors) {
     try {

@@ -4,7 +4,10 @@ import {
   runPipeline,
   exportDeliverables,
   PipelineResult,
+  SddModel,
+  AddModel,
   sddToMarkdown,
+  addToMarkdown,
   testCasesToMarkdown,
   GatewayConfig,
   RepoSource,
@@ -102,7 +105,7 @@ async function generate(
   // Nudge toward richer output when no discovery context was found (UiPath only).
   if (result.detection.platform === 'uipath' && !result.graph.projectContext) {
     vscode.window.showInformationMessage(
-      'InstaDocs: run the UiPath "project discovery" agent to generate AGENTS.md and enrich this PDD ' +
+      'InstaDocs: run the UiPath "project discovery" agent to generate AGENTS.md and enrich this document ' +
         '(dependencies, conventions, key workflows).'
     );
   }
@@ -136,11 +139,16 @@ function showPreview(context: vscode.ExtensionContext, result: PipelineResult): 
     { enableScripts: true }
   );
 
+  const docMarkdown =
+    result.docType === 'add'
+      ? addToMarkdown(result.model as AddModel)
+      : sddToMarkdown(result.model as SddModel);
+
   panel.webview.html = renderWebview(panel.webview, {
     projectName: result.model.projectName,
     platform: result.detection.platform,
     usedLlm: result.usedLlm,
-    sddMarkdown: sddToMarkdown(result.model),
+    sddMarkdown: docMarkdown,
     testCasesMarkdown: testCasesToMarkdown(result.model),
   });
 
@@ -171,14 +179,16 @@ async function doExport(result: PipelineResult, outDir: string): Promise<void> {
       result.model,
       result.graph,
       new Date().toISOString().slice(0, 10),
-      outDir
+      outDir,
+      result.docType
     );
+    const docLabel = result.docType === 'add' ? 'ADD' : 'SDD';
     const pick = await vscode.window.showInformationMessage(
-      `InstaDocs: exported SDD (Word) + Test Cases (Excel) to ${outDir}.`,
-      'Open SDD',
+      `InstaDocs: exported ${docLabel} (Word) + Test Cases (Excel) to ${outDir}.`,
+      `Open ${docLabel}`,
       'Open Test Cases'
     );
-    if (pick === 'Open SDD') openExternal(paths.sddDocx);
+    if (pick === `Open ${docLabel}`) openExternal(paths.docx);
     if (pick === 'Open Test Cases') openExternal(paths.testCasesXlsx);
   } catch (err) {
     vscode.window.showErrorMessage(`InstaDocs export failed: ${(err as Error).message}`);

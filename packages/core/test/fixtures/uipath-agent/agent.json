@@ -1,0 +1,44 @@
+{
+  "id": "b7c1e2f0-1234-4a5b-9c8d-abcdef012345",
+  "name": "InvoiceTriageAgent",
+  "description": "An AI agent that triages incoming supplier invoices: it reads the invoice email, extracts key fields, decides whether the invoice can be auto-approved, and escalates exceptions to a human approver.",
+  "type": "agent",
+  "settings": {
+    "model": "gpt-4o-2024-08-06",
+    "provider": "AzureOpenAI",
+    "temperature": 0.2,
+    "maxTokens": 4096
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an accounts-payable triage assistant. Given a supplier invoice, extract the supplier name, invoice number, total amount and due date. If the amount is at or below the auto-approval threshold and the supplier is on the approved list, recommend AUTO_APPROVE. Otherwise recommend ESCALATE and give a short reason. Never invent values that are not present in the invoice."
+    },
+    { "role": "user", "content": "Invoice email body: {{invoiceEmail}}" }
+  ],
+  "inputArguments": [
+    { "name": "invoiceEmail", "type": "string", "description": "Raw invoice email body or extracted text.", "required": true },
+    { "name": "approvalThreshold", "type": "number", "description": "Maximum amount eligible for auto-approval.", "required": true }
+  ],
+  "outputArguments": [
+    { "name": "decision", "type": "string", "description": "AUTO_APPROVE or ESCALATE." },
+    { "name": "supplier", "type": "string", "description": "Extracted supplier name." },
+    { "name": "amount", "type": "number", "description": "Extracted total amount." },
+    { "name": "reason", "type": "string", "description": "Explanation for the decision." }
+  ],
+  "tools": [
+    { "name": "PostInvoiceToFinance", "type": "rpaWorkflow", "description": "UiPath RPA process that posts an approved invoice into the finance system." },
+    { "name": "LookupSupplier", "type": "integration", "description": "Queries the supplier master data API to confirm the supplier is approved." },
+    { "name": "SendConfirmationEmail", "type": "integration", "description": "Sends a confirmation email via Outlook." }
+  ],
+  "escalations": [
+    { "name": "ApproverReview", "description": "Routes uncertain or above-threshold invoices to a human approver.", "target": "AP Approvals (Action Center)" }
+  ],
+  "contextGrounding": [
+    { "name": "ApprovedSupplierPolicy", "type": "contextGrounding", "description": "Indexed AP policy document defining approval rules and thresholds." }
+  ],
+  "guardrails": [
+    { "name": "PIIRedaction", "description": "Redacts bank account numbers before logging." },
+    { "name": "GroundednessCheck", "value": "high" }
+  ]
+}
