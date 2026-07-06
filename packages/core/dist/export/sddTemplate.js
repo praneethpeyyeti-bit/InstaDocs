@@ -86,13 +86,27 @@ function fillSddDocx(model, graph, generatedOn, templatePath = defaultSddTemplat
         embedImage(outZip, PROJECTS_MARKER, 'instadocs-flow-projects.png', (0, flowchart_1.renderCombinedHighLevelFlow)(solutionFlows), 9101);
     }
     else {
-        const single = (0, flowchart_1.hasHighLevelSteps)(model.highLevelSteps)
-            ? (0, flowchart_1.renderHighLevelFlow)(model.projectName, model.highLevelSteps)
-            : solutionFlows.length === 1
-                ? (0, flowchart_1.renderHighLevelFlow)(solutionFlows[0].project, solutionFlows[0].steps)
-                : (0, flowchart_1.isReframework)(graph)
-                    ? (0, flowchart_1.renderReframeworkStates)()
-                    : (0, flowchart_1.renderProcessFlow)(graph);
+        // Draw the diagram that matches the project's actual layout:
+        //  - REFramework / state machine -> the canonical 4-state machine
+        //  - Flowchart                   -> a branch/decision-aware structured flow
+        //  - Sequence                    -> the LLM high-level business flow (linear),
+        //                                   falling back to a structured flow
+        let single;
+        if ((0, flowchart_1.isReframework)(graph) || graph.layout === 'statemachine') {
+            single = (0, flowchart_1.renderReframeworkStates)();
+        }
+        else if (graph.layout === 'flowchart') {
+            single = (0, flowchart_1.renderProcessFlow)(graph);
+        }
+        else if ((0, flowchart_1.hasHighLevelSteps)(model.highLevelSteps)) {
+            single = (0, flowchart_1.renderHighLevelFlow)(model.projectName, model.highLevelSteps);
+        }
+        else if (solutionFlows.length === 1) {
+            single = (0, flowchart_1.renderHighLevelFlow)(solutionFlows[0].project, solutionFlows[0].steps);
+        }
+        else {
+            single = (0, flowchart_1.renderProcessFlow)(graph);
+        }
         embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', single, 9001);
         // No per-project view for a single process — drop the extra marker/caption.
         removeMarkerBlock(outZip, PROJECTS_MARKER, 'Per-process high-level flows:');
@@ -203,14 +217,15 @@ function buildData(model, generatedOn) {
         namingConventions: model.namingConventions,
         modules: orDash(model.modules, () => ({ name: '', parent: '', arguments: '', reusable: '', folderPath: '', description: '' })),
         exceptions: orDash(model.exceptions, () => ({ code: '', detail: '', type: '', botAction: '', notification: '' })),
-        dependencies: model.dependencies.map(withVersion),
-        externalLibraries: model.externalLibraries.map(withVersion),
+        // Dependency / library tables: version in its own column (raw, no parens).
+        dependencies: orDash(model.dependencies.map(libRow), () => ({ name: '', version: '', purpose: '' })),
+        externalLibraries: orDash(model.externalLibraries.map(libRow), () => ({ name: 'None', version: '', purpose: 'No third-party libraries used.' })),
         futureImprovements: model.futureImprovements,
         complianceItems: orDash(model.complianceItems, () => ({ item: '', desc: '' })),
         glossary: orDash(model.glossary, () => ({ term: '', definition: '' })),
     };
-    function withVersion(l) {
-        return { name: l.name, version: l.version ? ` (${l.version})` : '', purpose: l.purpose || '' };
+    function libRow(l) {
+        return { name: l.name, version: l.version || '', purpose: l.purpose || '' };
     }
 }
 /**

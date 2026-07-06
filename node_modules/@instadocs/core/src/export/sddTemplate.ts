@@ -59,13 +59,23 @@ export function fillSddDocx(
     embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', renderSolutionFlow(solutionFlows), 9001);
     embedImage(outZip, PROJECTS_MARKER, 'instadocs-flow-projects.png', renderCombinedHighLevelFlow(solutionFlows), 9101);
   } else {
-    const single = hasHighLevelSteps(model.highLevelSteps)
-      ? renderHighLevelFlow(model.projectName, model.highLevelSteps)
-      : solutionFlows.length === 1
-        ? renderHighLevelFlow(solutionFlows[0].project, solutionFlows[0].steps)
-        : isReframework(graph)
-          ? renderReframeworkStates()
-          : renderProcessFlow(graph);
+    // Draw the diagram that matches the project's actual layout:
+    //  - REFramework / state machine -> the canonical 4-state machine
+    //  - Flowchart                   -> a branch/decision-aware structured flow
+    //  - Sequence                    -> the LLM high-level business flow (linear),
+    //                                   falling back to a structured flow
+    let single;
+    if (isReframework(graph) || graph.layout === 'statemachine') {
+      single = renderReframeworkStates();
+    } else if (graph.layout === 'flowchart') {
+      single = renderProcessFlow(graph);
+    } else if (hasHighLevelSteps(model.highLevelSteps)) {
+      single = renderHighLevelFlow(model.projectName, model.highLevelSteps);
+    } else if (solutionFlows.length === 1) {
+      single = renderHighLevelFlow(solutionFlows[0].project, solutionFlows[0].steps);
+    } else {
+      single = renderProcessFlow(graph);
+    }
     embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', single, 9001);
     // No per-project view for a single process — drop the extra marker/caption.
     removeMarkerBlock(outZip, PROJECTS_MARKER, 'Per-process high-level flows:');
@@ -183,15 +193,16 @@ function buildData(model: SddModel, generatedOn: string): Record<string, unknown
     namingConventions: model.namingConventions,
     modules: orDash(model.modules, () => ({ name: '', parent: '', arguments: '', reusable: '', folderPath: '', description: '' })),
     exceptions: orDash(model.exceptions, () => ({ code: '', detail: '', type: '', botAction: '', notification: '' })),
-    dependencies: model.dependencies.map(withVersion),
-    externalLibraries: model.externalLibraries.map(withVersion),
+    // Dependency / library tables: version in its own column (raw, no parens).
+    dependencies: orDash(model.dependencies.map(libRow), () => ({ name: '', version: '', purpose: '' })),
+    externalLibraries: orDash(model.externalLibraries.map(libRow), () => ({ name: 'None', version: '', purpose: 'No third-party libraries used.' })),
     futureImprovements: model.futureImprovements,
     complianceItems: orDash(model.complianceItems, () => ({ item: '', desc: '' })),
     glossary: orDash(model.glossary, () => ({ term: '', definition: '' })),
   };
 
-  function withVersion(l: { name: string; version?: string; purpose?: string }) {
-    return { name: l.name, version: l.version ? ` (${l.version})` : '', purpose: l.purpose || '' };
+  function libRow(l: { name: string; version?: string; purpose?: string }) {
+    return { name: l.name, version: l.version || '', purpose: l.purpose || '' };
   }
 }
 

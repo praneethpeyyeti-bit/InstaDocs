@@ -56,6 +56,12 @@ export async function parseUiPath(workingDir: string): Promise<ProcessGraph> {
     graph.entryPoints.push(path.relative(workingDir, xamlFiles[0]));
   }
 
+  // Detect the entry workflow's root layout (state machine / flowchart /
+  // sequence) — drives which process-design diagram is drawn.
+  if (graph.entryPoints[0]) {
+    graph.layout = detectLayout(path.join(workingDir, graph.entryPoints[0]));
+  }
+
   for (const file of xamlFiles) {
     try {
       parseXamlFile(file, workingDir, graph);
@@ -171,6 +177,29 @@ function classify(localName: string): NodeKind {
   if (IO_HINTS.test(localName)) return 'io';
   if (UI_HINTS.test(localName)) return 'ui';
   return 'other';
+}
+
+/** Detect the root layout of an entry XAML from its top structural child. */
+function detectLayout(file: string): ProcessGraph['layout'] {
+  try {
+    const doc = xml.parse(readText(file));
+    const activity = doc.Activity ?? doc;
+    // The root wraps the real body; look one or two levels down for the shape.
+    const keys = new Set<string>();
+    const collect = (o: any, depth: number) => {
+      if (!o || typeof o !== 'object' || depth > 2) return;
+      for (const k of Object.keys(o)) {
+        keys.add(k);
+        if (!k.startsWith('@_') && !k.includes('.')) collect(o[k], depth + 1);
+      }
+    };
+    collect(activity, 0);
+    if (keys.has('StateMachine')) return 'statemachine';
+    if (keys.has('Flowchart')) return 'flowchart';
+    return 'sequence';
+  } catch {
+    return undefined;
+  }
 }
 
 function parseXamlFile(file: string, workingDir: string, graph: ProcessGraph): void {

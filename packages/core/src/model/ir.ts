@@ -141,6 +141,11 @@ export interface ProcessGraph {
    * path instead of the RPA Solution Design Document.
    */
   agent?: import('./agent').AgentSpec;
+  /**
+   * Root layout of the entry workflow — drives the process-design diagram:
+   * 'statemachine' (REFramework/state machine), 'flowchart', or 'sequence'.
+   */
+  layout?: 'statemachine' | 'flowchart' | 'sequence';
   /** Free-form extraction diagnostics (unsupported activities, parse warnings). */
   warnings?: string[];
 }

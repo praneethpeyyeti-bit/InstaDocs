@@ -66,7 +66,14 @@ function main() {
   xml = replaceSectionBody(xml, 'Summary', para('[[summary]]'));
   xml = replaceSectionBody(xml, 'Design specifications.', bulletList('designSpecifications'));
   xml = replaceSectionBody(xml, 'Orchestrator Folder structure', para('[[orchestratorFolders]]'));
-  xml = replaceSectionBody(xml, 'Orchestrator assets', loopBlock('orchestratorAssets', '[[item]]', ': [[desc]]'));
+  xml = replaceSectionBody(
+    xml,
+    'Orchestrator assets',
+    loopTable('orchestratorAssets', [
+      { header: 'Asset', tag: '[[item]]', w: 3200 },
+      { header: 'Type / Details', tag: '[[desc]]', w: 6000 },
+    ])
+  );
   xml = replaceSectionBody(xml, 'Initial design considerations', bulletList('designConsiderations'));
   xml = replaceSectionBody(xml, 'Naming conventions', loopBlock('namingConventions', '[[.]]', ''));
   xml = replaceSectionBody(
@@ -81,8 +88,24 @@ function main() {
   xml = replaceSectionBody(xml, 'Debugging tips', bulletList('debuggingTips'));
   xml = replaceSectionBody(xml, 'Code and performance optimization techniques used.', bulletList('optimizations'));
   xml = replaceSectionBody(xml, 'Code review, issues, and fixes', bulletList('codeReview'));
-  xml = replaceSectionBody(xml, 'Dependencies', loopBlock('dependencies', '[[name]][[version]]', ': [[purpose]]'));
-  xml = replaceSectionBody(xml, 'External libraries', loopBlock('externalLibraries', '[[name]][[version]]', ': [[purpose]]'));
+  xml = replaceSectionBody(
+    xml,
+    'Dependencies',
+    loopTable('dependencies', [
+      { header: 'Package', tag: '[[name]]', w: 3400 },
+      { header: 'Version', tag: '[[version]]', w: 1400 },
+      { header: 'Purpose', tag: '[[purpose]]', w: 4400 },
+    ])
+  );
+  xml = replaceSectionBody(
+    xml,
+    'External libraries',
+    loopTable('externalLibraries', [
+      { header: 'Library', tag: '[[name]]', w: 3400 },
+      { header: 'Version', tag: '[[version]]', w: 1400 },
+      { header: 'Purpose', tag: '[[purpose]]', w: 4400 },
+    ])
+  );
   xml = replaceSectionBody(xml, 'Future improvements', loopBlock('futureImprovements', '[[.]]', ''));
   xml = replaceSectionBody(xml, 'Data security and privacy considerations', bulletList('dataSecurity'));
   xml = replaceSectionBody(xml, 'Glossary', loopBlock('glossary', '[[term]]', ': [[definition]]'));
@@ -244,31 +267,65 @@ function insertQueueJson(xml) {
   return xml.slice(0, at) + block + xml.slice(cut);
 }
 
-/** Plain bulleted list bound to a string[] loop (one non-bold bullet per item). */
-function bulletList(loopName) {
-  const tagPara = (tag) =>
-    `<w:p><w:pPr><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">${tag}</w:t></w:r></w:p>`;
-  const bullet =
-    `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/>` +
-    `<w:numId w:val="1"/></w:numPr><w:spacing w:after="40" w:line="240" w:lineRule="auto"/>` +
-    `<w:rPr><w:sz w:val="20"/></w:rPr></w:pPr>` +
-    `<w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">[[.]]</w:t></w:r></w:p>`;
-  return tagPara(`[[#${loopName}]]`) + bullet + tagPara(`[[/${loopName}]]`);
+const TAG_PARA = (tag) =>
+  `<w:p><w:pPr><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">${tag}</w:t></w:r></w:p>`;
+
+/**
+ * A real bullet paragraph using a literal "•" glyph + hanging indent (NOT a
+ * numbered <w:numPr> — the template's numId 1 is a decimal list, which is why
+ * every list was rendering as "1. 2. 3.").
+ */
+function bulletPara(boldTag, restTag) {
+  const rpr = '<w:rPr><w:sz w:val="20"/></w:rPr>';
+  return (
+    `<w:p><w:pPr><w:ind w:left="360" w:hanging="240"/><w:spacing w:after="40" w:line="240" w:lineRule="auto"/>${rpr}</w:pPr>` +
+    `<w:r>${rpr}<w:t xml:space="preserve">•  </w:t></w:r>` +
+    (boldTag ? `<w:r><w:rPr><w:b/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${boldTag}</w:t></w:r>` : '') +
+    (restTag ? `<w:r>${rpr}<w:t xml:space="preserve">${restTag}</w:t></w:r>` : '') +
+    `</w:p>`
+  );
 }
 
-/** 3-paragraph loop block (open tag / repeating bullet / close tag). */
+/** Plain bulleted list bound to a string[] loop (one bullet per item). */
+function bulletList(loopName) {
+  return TAG_PARA(`[[#${loopName}]]`) + bulletPara('', '[[.]]') + TAG_PARA(`[[/${loopName}]]`);
+}
+
+/** 3-paragraph loop block: open tag / repeating bullet / close tag. */
 function loopBlock(loopName, boldTag, restTag) {
-  const tagPara = (tag) =>
-    `<w:p><w:pPr><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">${tag}</w:t></w:r></w:p>`;
-  const bullet =
-    `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/>` +
-    `<w:numId w:val="1"/></w:numPr><w:rPr><w:sz w:val="20"/></w:rPr></w:pPr>` +
-    `<w:r><w:rPr><w:b/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${boldTag}</w:t></w:r>` +
-    (restTag
-      ? `<w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${restTag}</w:t></w:r>`
-      : '') +
-    `</w:p>`;
-  return tagPara(`[[#${loopName}]]`) + bullet + tagPara(`[[/${loopName}]]`);
+  return TAG_PARA(`[[#${loopName}]]`) + bulletPara(boldTag, restTag) + TAG_PARA(`[[/${loopName}]]`);
+}
+
+/**
+ * A bordered table bound to an object[] loop — one row per item. `columns` is
+ * [{header, tag, w}] (w = column width in twips). The row `<w:tr>` repeats via
+ * docxtemplater ([[#loop]] in the first cell, [[/loop]] in the last).
+ */
+function loopTable(loopName, columns) {
+  const totalW = columns.reduce((s, c) => s + c.w, 0);
+  const grid = columns.map((c) => `<w:gridCol w:w="${c.w}"/>`).join('');
+  const side = (s) => `<w:${s} w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>`;
+  const borders = `<w:tblBorders>${['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(side).join('')}</w:tblBorders>`;
+  const headCell = (c) =>
+    `<w:tc><w:tcPr><w:tcW w:w="${c.w}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="D9E1F2"/></w:tcPr>` +
+    `<w:p><w:pPr><w:spacing w:line="240" w:lineRule="auto"/><w:rPr><w:b/><w:sz w:val="18"/></w:rPr></w:pPr>` +
+    `<w:r><w:rPr><w:b/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${c.header}</w:t></w:r></w:p></w:tc>`;
+  const dataCell = (c, i) => {
+    const open = i === 0 ? `[[#${loopName}]]` : '';
+    const close = i === columns.length - 1 ? `[[/${loopName}]]` : '';
+    return (
+      `<w:tc><w:tcPr><w:tcW w:w="${c.w}" w:type="dxa"/></w:tcPr>` +
+      `<w:p><w:pPr><w:spacing w:line="240" w:lineRule="auto"/><w:rPr><w:sz w:val="18"/></w:rPr></w:pPr>` +
+      `<w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${open}${c.tag}${close}</w:t></w:r></w:p></w:tc>`
+    );
+  };
+  return (
+    `<w:tbl><w:tblPr><w:tblW w:w="${totalW}" w:type="dxa"/>${borders}<w:tblLayout w:type="fixed"/></w:tblPr>` +
+    `<w:tblGrid>${grid}</w:tblGrid>` +
+    `<w:tr>${columns.map(headCell).join('')}</w:tr>` +
+    `<w:tr>${columns.map(dataCell).join('')}</w:tr></w:tbl>` +
+    `<w:p><w:pPr><w:spacing w:after="0"/><w:rPr><w:sz w:val="4"/></w:rPr></w:pPr></w:p>` // spacer so adjacent tables don't merge
+  );
 }
 
 /** Italic caption + a centered image placeholder (swapped by the exporter). */
