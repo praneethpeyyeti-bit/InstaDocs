@@ -1,0 +1,16 @@
+{
+  "name": "InvoiceTriageAgent",
+  "description": "Agentic AP invoice triage solution.",
+  "main": "agent.json",
+  "projectType": "Agent",
+  "dependencies": {
+    "UiPath.System.Activities": "[24.10.0]"
+  },
+  "schemaVersion": "4.2",
+  "projectVersion": "1.0.0",
+  "designOptions": {
+    "outputType": "Agent"
+  },
+  "expressionLanguage": "CSharp",
+  "targetFramework": "Portable"
+}

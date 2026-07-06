@@ -85,6 +85,9 @@ export const TestScenarioSchema = z.object({
   testData: z.string().default(''),
   expectedResult: z.string(),
   tracesTo: z.string().optional(),
+  /** For a multi-project solution: which project this test belongs to (drives a
+   * separate Excel sheet per process). Empty for a single-process solution. */
+  project: z.string().optional(),
 });
 export type TestScenario = z.infer<typeof TestScenarioSchema>;
 
@@ -95,8 +98,28 @@ export const SddModelSchema = z.object({
   purpose: z.string(),
   /** 3.1 – Process overview summary (narrative). */
   summary: z.string(),
-  /** 2.1 – Architectural structure (narrative). */
+  /** 2.1 – Architectural structure: a short 1-2 sentence intro. */
   architecture: z.string().default(''),
+  /**
+   * Architectural structure broken into labelled points (Pattern, Components,
+   * Data flow, Integrations, Configuration, Error handling, Scalability) so the
+   * section reads as structured bullets instead of one wall of text.
+   */
+  architecturePoints: z.array(z.object({ aspect: z.string(), detail: z.string() })).default([]),
+  /**
+   * The main business steps of the process, in execution order — drives the
+   * "High level process flow diagram". Short imperative phrases (business, not
+   * framework plumbing), e.g. "Log in to System1", "Calculate SHA1 hash".
+   */
+  highLevelSteps: z.array(z.string()).default([]),
+  /**
+   * For a multi-project solution (e.g. Dispatcher / Performer / Reporter): the
+   * high-level business steps of EACH project, so the SDD renders one high-level
+   * flow diagram per project. Empty for a single-project solution.
+   */
+  projectFlows: z
+    .array(z.object({ project: z.string(), steps: z.array(z.string()).default([]) }))
+    .default([]),
 
   revisions: z.array(Revision).default([]),
   contacts: z.array(Contact).default([]),
@@ -112,6 +135,8 @@ export const SddModelSchema = z.object({
   designSpecifications: z.string().default(''),
   orchestratorFolders: z.string().default(''),
   orchestratorAssets: z.array(ItemDesc).default([]),
+  /** Representative JSON of an Orchestrator queue item (from Add/Bulk Add Queue Item). */
+  queueItemJson: z.string().default(''),
 
   designConsiderations: z.string().default(''),
   namingConventions: z.array(z.string()).default([]),

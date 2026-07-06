@@ -2,9 +2,9 @@ export interface UiPathSession {
     token?: string;
     /** Cloud base, e.g. https://cloud.uipath.com (or a staging/alpha host). */
     baseHost?: string;
-    /** Organization LOGICAL NAME (e.g. "ps_india") — used in the gateway URL path. */
+    /** Organization LOGICAL NAME (e.g. "my-org") — used in the gateway URL path. */
     organization?: string;
-    /** Tenant name (e.g. "ProfServ"). */
+    /** Tenant name (e.g. "DefaultTenant"). */
     tenant?: string;
 }
 /**

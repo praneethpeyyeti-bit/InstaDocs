@@ -1,4 +1,5 @@
 import { ProcessGraph, ProcessNode } from '../model/ir';
+import { AgentSpec } from '../model/agent';
 /**
  * Render the process as a colored flowchart image (PNG) straight from the
  * ProcessGraph. Each activity becomes a colored shape (process rectangle,
@@ -38,3 +39,42 @@ export interface ArchSystem {
  * access method labelled on the connector.
  */
 export declare function renderArchitecture(projectName: string, systems: ArchSystem[]): FlowchartImage;
+/**
+ * Render the high-level AI Agent lifecycle: an Orchestrator/Maestro band on top,
+ * a vertical spine (Trigger → Agent → Guardrails → Output), the agent's tools
+ * and knowledge as a reasoning loop on the right, and a human-in-the-loop
+ * escalation branch. Content is grounded in the parsed AgentSpec.
+ */
+export declare function renderAgenticFlow(agentName: string, spec?: AgentSpec): FlowchartImage;
+/**
+ * Render the agentic ecosystem: the AI Agent at the centre, connected to the
+ * Orchestrator/Maestro (top) and the tools, knowledge sources, escalation
+ * targets and RPA/API integrations it collaborates with (right column).
+ */
+export declare function renderAgenticEcosystem(agentName: string, spec?: AgentSpec): FlowchartImage;
+export declare function renderProcessFlow(graph: ProcessGraph): FlowchartImage;
+/** True when we have enough high-level steps to draw a meaningful flow. */
+export declare function hasHighLevelSteps(steps: string[] | undefined): boolean;
+/**
+ * Render a clean, numbered high-level process flow (Start → business steps →
+ * End). Deliberately concise — one box per high-level step, labels wrap.
+ */
+export declare function renderHighLevelFlow(title: string, stepsIn: string[]): FlowchartImage;
+/**
+ * Render ONE combined end-to-end high-level flow for a multi-project solution:
+ * each project's steps under a labelled header band, connected top-to-bottom,
+ * with an "Orchestrator Queue" hand-off inserted between a Dispatcher and the
+ * following project. Keeps every project's detail in a single connected picture.
+ */
+export declare function renderSolutionFlow(flowsIn: {
+    project: string;
+    steps: string[];
+}[]): FlowchartImage;
+/**
+ * Render one high-level flow per project, side by side (Dispatcher | Performer |
+ * Reporter), for a multi-project solution SDD.
+ */
+export declare function renderCombinedHighLevelFlow(flows: {
+    project: string;
+    steps: string[];
+}[]): FlowchartImage;

@@ -18,17 +18,17 @@ declare const ModuleRow: z.ZodObject<{
     description: z.ZodDefault<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     name: string;
-    folderPath: string;
     description: string;
-    parent: string;
     arguments: string;
+    folderPath: string;
+    parent: string;
     reusable: string;
 }, {
     name: string;
-    folderPath?: string | undefined;
     description?: string | undefined;
-    parent?: string | undefined;
     arguments?: string | undefined;
+    folderPath?: string | undefined;
+    parent?: string | undefined;
     reusable?: string | undefined;
 }>;
 declare const ExceptionRow: z.ZodObject<{
@@ -59,24 +59,29 @@ export declare const TestScenarioSchema: z.ZodObject<{
     testData: z.ZodDefault<z.ZodString>;
     expectedResult: z.ZodString;
     tracesTo: z.ZodOptional<z.ZodString>;
+    /** For a multi-project solution: which project this test belongs to (drives a
+     * separate Excel sheet per process). Empty for a single-process solution. */
+    project: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
+    id: string;
     type: "positive" | "negative" | "exception";
     title: string;
-    id: string;
     preconditions: string;
     steps: string[];
     testData: string;
     expectedResult: string;
     tracesTo?: string | undefined;
+    project?: string | undefined;
 }, {
+    id: string;
     type: "positive" | "negative" | "exception";
     title: string;
-    id: string;
     expectedResult: string;
     preconditions?: string | undefined;
     steps?: string[] | undefined;
     testData?: string | undefined;
     tracesTo?: string | undefined;
+    project?: string | undefined;
 }>;
 export type TestScenario = z.infer<typeof TestScenarioSchema>;
 export declare const SddModelSchema: z.ZodObject<{
@@ -86,8 +91,44 @@ export declare const SddModelSchema: z.ZodObject<{
     purpose: z.ZodString;
     /** 3.1 – Process overview summary (narrative). */
     summary: z.ZodString;
-    /** 2.1 – Architectural structure (narrative). */
+    /** 2.1 – Architectural structure: a short 1-2 sentence intro. */
     architecture: z.ZodDefault<z.ZodString>;
+    /**
+     * Architectural structure broken into labelled points (Pattern, Components,
+     * Data flow, Integrations, Configuration, Error handling, Scalability) so the
+     * section reads as structured bullets instead of one wall of text.
+     */
+    architecturePoints: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        aspect: z.ZodString;
+        detail: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        detail: string;
+        aspect: string;
+    }, {
+        detail: string;
+        aspect: string;
+    }>, "many">>;
+    /**
+     * The main business steps of the process, in execution order — drives the
+     * "High level process flow diagram". Short imperative phrases (business, not
+     * framework plumbing), e.g. "Log in to System1", "Calculate SHA1 hash".
+     */
+    highLevelSteps: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    /**
+     * For a multi-project solution (e.g. Dispatcher / Performer / Reporter): the
+     * high-level business steps of EACH project, so the SDD renders one high-level
+     * flow diagram per project. Empty for a single-project solution.
+     */
+    projectFlows: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        project: z.ZodString;
+        steps: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        steps: string[];
+        project: string;
+    }, {
+        project: string;
+        steps?: string[] | undefined;
+    }>, "many">>;
     revisions: z.ZodDefault<z.ZodArray<z.ZodObject<{
         rev: z.ZodString;
         date: z.ZodString;
@@ -95,16 +136,16 @@ export declare const SddModelSchema: z.ZodObject<{
         summary: z.ZodString;
         author: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        summary: string;
+        role: string;
         rev: string;
         date: string;
-        role: string;
-        summary: string;
         author: string;
     }, {
+        summary: string;
+        role: string;
         rev: string;
         date: string;
-        role: string;
-        summary: string;
         author: string;
     }>, "many">>;
     contacts: z.ZodDefault<z.ZodArray<z.ZodObject<{
@@ -181,12 +222,12 @@ export declare const SddModelSchema: z.ZodObject<{
         description: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        folderPath: string;
         description: string;
+        folderPath: string;
     }, {
         name: string;
-        folderPath?: string | undefined;
         description?: string | undefined;
+        folderPath?: string | undefined;
     }>, "many">>;
     triggers: z.ZodDefault<z.ZodArray<z.ZodObject<{
         process: z.ZodString;
@@ -195,8 +236,8 @@ export declare const SddModelSchema: z.ZodObject<{
         folderPath: z.ZodDefault<z.ZodString>;
         notes: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
-        type: string;
         process: string;
+        type: string;
         folderPath: string;
         recurrence: string;
         notes: string;
@@ -232,6 +273,8 @@ export declare const SddModelSchema: z.ZodObject<{
         item: string;
         desc: string;
     }>, "many">>;
+    /** Representative JSON of an Orchestrator queue item (from Add/Bulk Add Queue Item). */
+    queueItemJson: z.ZodDefault<z.ZodString>;
     designConsiderations: z.ZodDefault<z.ZodString>;
     namingConventions: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
     modules: z.ZodDefault<z.ZodArray<z.ZodObject<{
@@ -243,17 +286,17 @@ export declare const SddModelSchema: z.ZodObject<{
         description: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        folderPath: string;
         description: string;
-        parent: string;
         arguments: string;
+        folderPath: string;
+        parent: string;
         reusable: string;
     }, {
         name: string;
-        folderPath?: string | undefined;
         description?: string | undefined;
-        parent?: string | undefined;
         arguments?: string | undefined;
+        folderPath?: string | undefined;
+        parent?: string | undefined;
         reusable?: string | undefined;
     }>, "many">>;
     reporting: z.ZodDefault<z.ZodString>;
@@ -287,12 +330,12 @@ export declare const SddModelSchema: z.ZodObject<{
         purpose: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        version: string;
         purpose: string;
+        version: string;
     }, {
         name: string;
-        version?: string | undefined;
         purpose?: string | undefined;
+        version?: string | undefined;
     }>, "many">>;
     externalLibraries: z.ZodDefault<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
@@ -300,12 +343,12 @@ export declare const SddModelSchema: z.ZodObject<{
         purpose: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         name: string;
-        version: string;
         purpose: string;
+        version: string;
     }, {
         name: string;
-        version?: string | undefined;
         purpose?: string | undefined;
+        version?: string | undefined;
     }>, "many">>;
     futureImprovements: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
     complianceItems: z.ZodDefault<z.ZodArray<z.ZodObject<{
@@ -339,24 +382,29 @@ export declare const SddModelSchema: z.ZodObject<{
         testData: z.ZodDefault<z.ZodString>;
         expectedResult: z.ZodString;
         tracesTo: z.ZodOptional<z.ZodString>;
+        /** For a multi-project solution: which project this test belongs to (drives a
+         * separate Excel sheet per process). Empty for a single-process solution. */
+        project: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
+        id: string;
         type: "positive" | "negative" | "exception";
         title: string;
-        id: string;
         preconditions: string;
         steps: string[];
         testData: string;
         expectedResult: string;
         tracesTo?: string | undefined;
+        project?: string | undefined;
     }, {
+        id: string;
         type: "positive" | "negative" | "exception";
         title: string;
-        id: string;
         expectedResult: string;
         preconditions?: string | undefined;
         steps?: string[] | undefined;
         testData?: string | undefined;
         tracesTo?: string | undefined;
+        project?: string | undefined;
     }>, "many">>;
 }, "strip", z.ZodTypeAny, {
     summary: string;
@@ -364,11 +412,20 @@ export declare const SddModelSchema: z.ZodObject<{
     projectName: string;
     platformLabel: string;
     architecture: string;
+    architecturePoints: {
+        detail: string;
+        aspect: string;
+    }[];
+    highLevelSteps: string[];
+    projectFlows: {
+        steps: string[];
+        project: string;
+    }[];
     revisions: {
+        summary: string;
+        role: string;
         rev: string;
         date: string;
-        role: string;
-        summary: string;
         author: string;
     }[];
     contacts: {
@@ -399,12 +456,12 @@ export declare const SddModelSchema: z.ZodObject<{
     }[];
     processes: {
         name: string;
-        folderPath: string;
         description: string;
+        folderPath: string;
     }[];
     triggers: {
-        type: string;
         process: string;
+        type: string;
         folderPath: string;
         recurrence: string;
         notes: string;
@@ -420,14 +477,15 @@ export declare const SddModelSchema: z.ZodObject<{
         item: string;
         desc: string;
     }[];
+    queueItemJson: string;
     designConsiderations: string;
     namingConventions: string[];
     modules: {
         name: string;
-        folderPath: string;
         description: string;
-        parent: string;
         arguments: string;
+        folderPath: string;
+        parent: string;
         reusable: string;
     }[];
     reporting: string;
@@ -445,13 +503,13 @@ export declare const SddModelSchema: z.ZodObject<{
     codeReview: string;
     dependencies: {
         name: string;
-        version: string;
         purpose: string;
+        version: string;
     }[];
     externalLibraries: {
         name: string;
-        version: string;
         purpose: string;
+        version: string;
     }[];
     futureImprovements: string[];
     complianceItems: {
@@ -464,14 +522,15 @@ export declare const SddModelSchema: z.ZodObject<{
         definition: string;
     }[];
     testScenarios: {
+        id: string;
         type: "positive" | "negative" | "exception";
         title: string;
-        id: string;
         preconditions: string;
         steps: string[];
         testData: string;
         expectedResult: string;
         tracesTo?: string | undefined;
+        project?: string | undefined;
     }[];
 }, {
     summary: string;
@@ -479,11 +538,20 @@ export declare const SddModelSchema: z.ZodObject<{
     projectName: string;
     platformLabel: string;
     architecture?: string | undefined;
+    architecturePoints?: {
+        detail: string;
+        aspect: string;
+    }[] | undefined;
+    highLevelSteps?: string[] | undefined;
+    projectFlows?: {
+        project: string;
+        steps?: string[] | undefined;
+    }[] | undefined;
     revisions?: {
+        summary: string;
+        role: string;
         rev: string;
         date: string;
-        role: string;
-        summary: string;
         author: string;
     }[] | undefined;
     contacts?: {
@@ -514,8 +582,8 @@ export declare const SddModelSchema: z.ZodObject<{
     }[] | undefined;
     processes?: {
         name: string;
-        folderPath?: string | undefined;
         description?: string | undefined;
+        folderPath?: string | undefined;
     }[] | undefined;
     triggers?: {
         process: string;
@@ -535,14 +603,15 @@ export declare const SddModelSchema: z.ZodObject<{
         item: string;
         desc: string;
     }[] | undefined;
+    queueItemJson?: string | undefined;
     designConsiderations?: string | undefined;
     namingConventions?: string[] | undefined;
     modules?: {
         name: string;
-        folderPath?: string | undefined;
         description?: string | undefined;
-        parent?: string | undefined;
         arguments?: string | undefined;
+        folderPath?: string | undefined;
+        parent?: string | undefined;
         reusable?: string | undefined;
     }[] | undefined;
     reporting?: string | undefined;
@@ -560,13 +629,13 @@ export declare const SddModelSchema: z.ZodObject<{
     codeReview?: string | undefined;
     dependencies?: {
         name: string;
-        version?: string | undefined;
         purpose?: string | undefined;
+        version?: string | undefined;
     }[] | undefined;
     externalLibraries?: {
         name: string;
-        version?: string | undefined;
         purpose?: string | undefined;
+        version?: string | undefined;
     }[] | undefined;
     futureImprovements?: string[] | undefined;
     complianceItems?: {
@@ -579,14 +648,15 @@ export declare const SddModelSchema: z.ZodObject<{
         definition: string;
     }[] | undefined;
     testScenarios?: {
+        id: string;
         type: "positive" | "negative" | "exception";
         title: string;
-        id: string;
         expectedResult: string;
         preconditions?: string | undefined;
         steps?: string[] | undefined;
         testData?: string | undefined;
         tracesTo?: string | undefined;
+        project?: string | undefined;
     }[] | undefined;
 }>;
 export type SddModel = z.infer<typeof SddModelSchema>;

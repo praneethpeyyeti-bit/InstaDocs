@@ -66,6 +66,8 @@ function parseArgs(argv) {
             args.subpath = argv[++i];
         else if (a === '--platform')
             args.platform = argv[++i];
+        else if (a === '--doc-type' || a === '--type')
+            args.docType = argv[++i];
         else if (a === '--llm' || a === '--strict')
             args.llm = true;
         else if (a === '--model')
@@ -144,15 +146,17 @@ async function main() {
     const result = await (0, index_1.runPipeline)({
         source: { location: args.location, branch: args.branch, subPath: args.subpath },
         platformOverride: args.platform,
+        docTypeOverride: args.docType,
         generatedOn: new Date().toISOString().slice(0, 10),
         model: preAuthored,
         enrich: { gateway },
         onProgress: (m) => console.error(`• ${m}`),
     });
-    const paths = await (0, index_1.exportDeliverables)(result.model, result.graph, new Date().toISOString().slice(0, 10), args.out);
-    console.error(`✓ SDD  (Word):  ${paths.sddDocx}`);
+    const paths = await (0, index_1.exportDeliverables)(result.model, result.graph, new Date().toISOString().slice(0, 10), args.out, result.docType);
+    const docLabel = result.docType === 'add' ? 'ADD  (Word)' : 'SDD  (Word)';
+    console.error(`✓ ${docLabel}:  ${paths.docx}`);
     console.error(`✓ Tests (Excel): ${paths.testCasesXlsx}`);
-    console.error(`Done. Platform=${result.detection.platform}, LLM=${result.usedLlm ? 'yes' : 'no (deterministic)'}.`);
+    console.error(`Done. Platform=${result.detection.platform}, DocType=${result.docType}, LLM=${result.usedLlm ? 'yes' : 'no'}.`);
 }
 main().catch((err) => {
     console.error('InstaDocs failed:', err.message);

@@ -21,6 +21,7 @@ import { loadProjectContext } from './context/projectContext';
 import { GatewayConfig } from './analyze/gateway';
 import { resolveUiPathSession, gatewayUrlFromSession } from './analyze/uipathSession';
 import { Platform } from './model/ir';
+import { DocType } from './detect/docType';
 
 interface Args {
   location?: string;
@@ -28,9 +29,11 @@ interface Args {
   branch?: string;
   subpath?: string;
   platform?: Platform;
+  /** Force the deliverable type (sdd = RPA, add = agentic); else auto-detect. */
+  docType?: DocType;
   /** Require the LLM Gateway; fail instead of falling back to deterministic. */
   llm: boolean;
-  /** Path to a pre-authored SddModel JSON to use instead of analysis. */
+  /** Path to a pre-authored model JSON to use instead of analysis. */
   model?: string;
   /** Print parsed evidence (discovery context + compacted workflow) as JSON and exit. */
   dumpCompact?: boolean;
@@ -44,6 +47,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--branch') args.branch = argv[++i];
     else if (a === '--subpath') args.subpath = argv[++i];
     else if (a === '--platform') args.platform = argv[++i] as Platform;
+    else if (a === '--doc-type' || a === '--type') args.docType = argv[++i] as DocType;
     else if (a === '--llm' || a === '--strict') args.llm = true;
     else if (a === '--model') args.model = argv[++i];
     else if (a === '--dump-compact') args.dumpCompact = true;
@@ -109,7 +113,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  let preAuthored: import('./model/sdd').SddModel | undefined;
+  let preAuthored: import('./index').PipelineOptions['model'];
   if (args.model) {
     const fs = await import('fs');
     preAuthored = JSON.parse(fs.readFileSync(args.model, 'utf8'));
@@ -125,6 +129,7 @@ async function main(): Promise<void> {
   const result = await runPipeline({
     source: { location: args.location, branch: args.branch, subPath: args.subpath },
     platformOverride: args.platform,
+    docTypeOverride: args.docType,
     generatedOn: new Date().toISOString().slice(0, 10),
     model: preAuthored,
     enrich: { gateway },
@@ -135,12 +140,14 @@ async function main(): Promise<void> {
     result.model,
     result.graph,
     new Date().toISOString().slice(0, 10),
-    args.out
+    args.out,
+    result.docType
   );
-  console.error(`✓ SDD  (Word):  ${paths.sddDocx}`);
+  const docLabel = result.docType === 'add' ? 'ADD  (Word)' : 'SDD  (Word)';
+  console.error(`✓ ${docLabel}:  ${paths.docx}`);
   console.error(`✓ Tests (Excel): ${paths.testCasesXlsx}`);
   console.error(
-    `Done. Platform=${result.detection.platform}, LLM=${result.usedLlm ? 'yes' : 'no (deterministic)'}.`
+    `Done. Platform=${result.detection.platform}, DocType=${result.docType}, LLM=${result.usedLlm ? 'yes' : 'no'}.`
   );
 }
 

@@ -39,6 +39,7 @@ const path = __importStar(require("path"));
 const fast_xml_parser_1 = require("fast-xml-parser");
 const ir_1 = require("../model/ir");
 const files_1 = require("../util/files");
+const agent_1 = require("./agent");
 /**
  * UiPath parser: reads project.json + .xaml (+ .cs coded workflows) and emits
  * a normalized ProcessGraph.
@@ -64,6 +65,7 @@ async function parseUiPath(workingDir) {
     screenshotsDir = path.join(workingDir, '.screenshots');
     const projectName = readProjectName(workingDir);
     const graph = (0, ir_1.emptyGraph)('uipath', projectName);
+    graph.dependencies = readDependencies(workingDir);
     const mainFile = readMainEntry(workingDir);
     const xamlFiles = (0, files_1.walkFiles)(workingDir, { extensions: ['.xaml'] });
     if (mainFile && (0, files_1.exists)(path.join(workingDir, mainFile))) {
@@ -89,6 +91,22 @@ async function parseUiPath(workingDir) {
             /* non-fatal */
         }
     }
+    // Agentic automations carry an agent spec (low-code agent.json / coded agent)
+    // alongside — or instead of — XAML. Attach it when present; it drives the
+    // Agentic Design Document path.
+    try {
+        const agent = (0, agent_1.parseAgent)(workingDir);
+        if (agent) {
+            graph.agent = agent;
+            if (!graph.entryPoints.length)
+                graph.entryPoints.push(agent.source);
+            if (graph.projectName === path.basename(workingDir) && agent.name)
+                graph.projectName = agent.name;
+        }
+    }
+    catch {
+        /* non-fatal */
+    }
     return graph;
 }
 function readProjectName(workingDir) {
@@ -104,6 +122,27 @@ function readProjectName(workingDir) {
         }
     }
     return path.basename(workingDir);
+}
+/** Read declared dependencies (name + version) from project.json. */
+function readDependencies(workingDir) {
+    const pj = path.join(workingDir, 'project.json');
+    if (!(0, files_1.exists)(pj))
+        return [];
+    try {
+        const obj = JSON.parse((0, files_1.readText)(pj));
+        const deps = obj.dependencies;
+        if (!deps || typeof deps !== 'object')
+            return [];
+        return Object.entries(deps).map(([pkg, ver]) => ({
+            package: pkg,
+            // Versions look like "[3.2.1]", "2.9.10" or "26.4.4-preview" — strip the
+            // NuGet range brackets, keep the rest verbatim.
+            version: String(ver).replace(/^\[|\]$/g, '').trim() || undefined,
+        }));
+    }
+    catch {
+        return [];
+    }
 }
 function readMainEntry(workingDir) {
     const pj = path.join(workingDir, 'project.json');
@@ -210,8 +249,13 @@ function innerType(type) {
 // Keys that are metadata/containers, not executable activities.
 const SKIP_KEYS = new Set(['Members', 'TextExpression.NamespacesForImplementation',
     'TextExpression.ReferencesForImplementation']);
-/** Recursively walk activity nodes, creating ProcessNodes + sequential edges. */
-function walkActivity(obj, graph, file, parentId) {
+/**
+ * Recursively walk activity nodes, creating ProcessNodes + edges. Each node
+ * records its `parentId` and the `branch` it sits on (Then/Else/Catch/loop body)
+ * so the process-flow renderer can rebuild the true branching tree instead of a
+ * misleading linear chain.
+ */
+function walkActivity(obj, graph, file, parentId, branch) {
     if (!obj || typeof obj !== 'object')
         return;
     for (const [key, value] of Object.entries(obj)) {
@@ -220,12 +264,13 @@ function walkActivity(obj, graph, file, parentId) {
         if (SKIP_KEYS.has(key) || key.endsWith('.Variables'))
             continue;
         const children = toArray(value);
-        // Structural properties like If.Then, If.Else, TryCatch.Try, Switch.Default,
-        // ForEach body: not activities themselves — recurse into them under the same
-        // parent so the activities they contain are still captured.
+        // Structural properties like If.Then, If.Else, TryCatch.Catches, Switch.Default,
+        // loop Body: not activities themselves — recurse into them under the same
+        // parent, tagging the activities they contain with the branch they sit on.
         if (key.includes('.')) {
+            const childBranch = branchForKey(key);
             for (const child of children)
-                walkActivity(child, graph, file, parentId);
+                walkActivity(child, graph, file, parentId, childBranch);
             continue;
         }
         let prevSibling;
@@ -237,15 +282,21 @@ function walkActivity(obj, graph, file, parentId) {
                 id: nextId(),
                 kind,
                 displayName: child['@_DisplayName'] || key,
-                raw: { activity: key, file, condition: child['@_Condition'] },
+                raw: { activity: key, file, condition: child['@_Condition'], parentId },
                 annotations: readAnnotation(child),
             };
+            // The first activity in a branch inherits the branch label; later siblings
+            // are sequential within that branch.
+            if (!prevSibling && branch)
+                node.raw.branch = branch.label ?? branch.kind;
             const shot = readScreenshot(child);
             if (shot)
                 node.raw.screenshot = shot;
             graph.nodes.push(node);
+            const edgeKind = !prevSibling && branch ? branch.kind : 'seq';
+            const edgeLabel = !prevSibling && branch ? branch.label : undefined;
             if (parentId)
-                graph.edges.push(edge(parentId, node.id, 'seq'));
+                graph.edges.push(edge(parentId, node.id, edgeKind, edgeLabel));
             if (prevSibling)
                 graph.edges.push(edge(prevSibling, node.id, 'seq'));
             prevSibling = node.id;
@@ -254,6 +305,23 @@ function walkActivity(obj, graph, file, parentId) {
             walkActivity(child, graph, file, node.id);
         }
     }
+}
+/** Map a structural property (e.g. `If.Else`) to the branch its children sit on. */
+function branchForKey(key) {
+    const suffix = key.split('.').pop() ?? '';
+    if (/^Then$/i.test(suffix))
+        return { kind: 'true', label: 'Yes' };
+    if (/^Else$/i.test(suffix))
+        return { kind: 'false', label: 'No' };
+    if (/^Catch(es)?$/i.test(suffix))
+        return { kind: 'catch', label: 'On exception' };
+    if (/^Finally$/i.test(suffix))
+        return { kind: 'seq', label: 'Finally' };
+    if (/^Default$/i.test(suffix))
+        return { kind: 'case', label: 'Default' };
+    if (/^(Body|Cases)$/i.test(suffix))
+        return { kind: 'loop-body', label: 'Each' };
+    return { kind: 'seq' };
 }
 function recordSpecial(activityName, child, node, graph, file) {
     if (activityName === 'InvokeWorkflowFile') {
@@ -271,6 +339,38 @@ function recordSpecial(activityName, child, node, graph, file) {
     if (node.kind === 'if' && child['@_Condition']) {
         node.raw.condition = child['@_Condition'];
     }
+    if (/^(AddQueueItem|AddTransactionItem|BulkAddQueueItems)$/.test(activityName)) {
+        recordQueueItem(activityName, child, graph);
+    }
+}
+/** Extract the fields an Add/Bulk Add Queue Item activity uploads. */
+function recordQueueItem(activityName, child, graph) {
+    const spec = {
+        queue: cleanExpr(child['@_QueueName'] ?? child['@_QueueType']),
+        reference: cleanExpr(child['@_Reference']),
+        priority: child['@_Priority'],
+        fields: [],
+        bulk: activityName === 'BulkAddQueueItems',
+    };
+    // Inline ItemInformation dictionary: <Activity.ItemInformation><InArgument x:Key="WIID"/>…
+    for (const k of Object.keys(child)) {
+        if (!/ItemInformation$/.test(k))
+            continue;
+        for (const ia of toArray(child[k]?.InArgument ?? child[k])) {
+            if (!ia || typeof ia !== 'object')
+                continue;
+            const name = ia['@_Key'] ?? ia['@_x:Key'];
+            if (name)
+                spec.fields.push({ name: String(name), type: innerType(ia['@_TypeArguments'] ?? ia['@_x:TypeArguments']) });
+        }
+    }
+    (graph.queueItems ??= []).push(spec);
+}
+/** Trim a VB/C# expression down to something readable for docs. */
+function cleanExpr(v) {
+    if (!v)
+        return undefined;
+    return String(v).replace(/^\[|\]$/g, '').trim() || undefined;
 }
 function readAnnotation(child) {
     // UiPath stores annotations under sap2010:Annotation.AnnotationText.
@@ -339,7 +439,7 @@ function toArray(v) {
         return [];
     return Array.isArray(v) ? v : [v];
 }
-function edge(from, to, kind) {
-    return { from, to, kind };
+function edge(from, to, kind, label) {
+    return label ? { from, to, kind, label } : { from, to, kind };
 }
 //# sourceMappingURL=uipath.js.map
