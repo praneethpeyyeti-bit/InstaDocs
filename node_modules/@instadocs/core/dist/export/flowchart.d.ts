@@ -56,21 +56,10 @@ export declare function hasHighLevelSteps(steps: string[] | undefined): boolean;
  * End). Deliberately concise — one box per high-level step, labels wrap.
  */
 export declare function renderHighLevelFlow(title: string, stepsIn: string[]): FlowchartImage;
-/**
- * Render ONE combined end-to-end high-level flow for a multi-project solution:
- * each project's steps under a labelled header band, connected top-to-bottom,
- * with an "Orchestrator Queue" hand-off inserted between a Dispatcher and the
- * following project. Keeps every project's detail in a single connected picture.
- */
-export declare function renderSolutionFlow(flowsIn: {
-    project: string;
-    steps: string[];
-}[]): FlowchartImage;
-/**
- * Render one high-level flow per project, side by side (Dispatcher | Performer |
- * Reporter), for a multi-project solution SDD.
- */
-export declare function renderCombinedHighLevelFlow(flows: {
+/** One project's high-level flow, partitioned by REFramework state. */
+export declare function renderPartitionedFlow(title: string, steps: string[]): FlowchartImage;
+/** Two+ projects (dispatcher/performer): a partitioned flow per project, stacked. */
+export declare function renderPartitionedFlows(flows: {
     project: string;
     steps: string[];
 }[]): FlowchartImage;

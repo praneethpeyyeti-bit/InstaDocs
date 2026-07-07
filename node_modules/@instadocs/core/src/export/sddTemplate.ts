@@ -3,7 +3,7 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { SddModel } from '../model/sdd';
 import { ProcessGraph } from '../model/ir';
-import { renderProcessFlow, renderReframeworkStates, renderArchitecture, renderHighLevelFlow, renderSolutionFlow, renderCombinedHighLevelFlow, hasHighLevelSteps, isReframework, ArchSystem } from './flowchart';
+import { renderProcessFlow, renderReframeworkStates, renderArchitecture, renderHighLevelFlow, renderPartitionedFlow, renderPartitionedFlows, hasHighLevelSteps, isReframework, ArchSystem } from './flowchart';
 import { resolveAsset } from './assets';
 
 const FLOWCHART_MARKER = 'INSTADOCS_FLOWCHART_MAIN';
@@ -49,37 +49,33 @@ export function fillSddDocx(
   embedImage(outZip, ARCH_MARKER, 'instadocs-arch.png', renderArchitecture(model.projectName, archSystems(model)), 9301);
 
   // High-level process flow diagram(s):
-  //  - Multi-project solution: a COMBINED end-to-end flow (Dispatcher → queue →
-  //    Performer → …) as the overview, PLUS the per-project flows side by side.
-  //  - Single process (any type — Sequence / REFramework / Flowchart): one
-  //    high-level flow from the LLM business steps; falling back to a branch-
-  //    aware structured flow, then the REFramework states.
+  //  - Multi-project solution (e.g. Dispatcher + Performer): one REFramework-
+  //    PARTITIONED flow PER project (Init / Get Transaction / Process / End) —
+  //    two separate diagrams, stacked. No separate per-process section.
+  //  - Single project: exactly ONE diagram matching its layout.
   const solutionFlows = model.projectFlows.filter((f) => hasHighLevelSteps(f.steps));
   if (solutionFlows.length > 1) {
-    embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', renderSolutionFlow(solutionFlows), 9001);
-    embedImage(outZip, PROJECTS_MARKER, 'instadocs-flow-projects.png', renderCombinedHighLevelFlow(solutionFlows), 9101);
+    embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', renderPartitionedFlows(solutionFlows), 9001);
   } else {
-    // Draw the diagram that matches the project's actual layout:
-    //  - REFramework / state machine -> the canonical 4-state machine
-    //  - Flowchart                   -> a branch/decision-aware structured flow
-    //  - Sequence                    -> the LLM high-level business flow (linear),
-    //                                   falling back to a structured flow
+    const steps = hasHighLevelSteps(model.highLevelSteps)
+      ? model.highLevelSteps
+      : solutionFlows[0]?.steps ?? [];
     let single;
     if (isReframework(graph) || graph.layout === 'statemachine') {
-      single = renderReframeworkStates();
+      // REFramework -> partition the real high-level steps by state; if none
+      // were derived, fall back to the canonical 4-state machine.
+      single = steps.length ? renderPartitionedFlow(model.projectName, steps) : renderReframeworkStates();
     } else if (graph.layout === 'flowchart') {
-      single = renderProcessFlow(graph);
-    } else if (hasHighLevelSteps(model.highLevelSteps)) {
-      single = renderHighLevelFlow(model.projectName, model.highLevelSteps);
-    } else if (solutionFlows.length === 1) {
-      single = renderHighLevelFlow(solutionFlows[0].project, solutionFlows[0].steps);
+      single = renderProcessFlow(graph); // branch/decision-aware structured flow
+    } else if (steps.length) {
+      single = renderHighLevelFlow(model.projectName, steps); // Sequence -> linear
     } else {
       single = renderProcessFlow(graph);
     }
     embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', single, 9001);
-    // No per-project view for a single process — drop the extra marker/caption.
-    removeMarkerBlock(outZip, PROJECTS_MARKER, 'Per-process high-level flows:');
   }
+  // The per-process high-level flow section is not required (single or multi).
+  removeMarkerBlock(outZip, PROJECTS_MARKER, 'Per-process high-level flows:');
 
   return outZip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }

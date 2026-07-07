@@ -770,173 +770,133 @@ export function renderHighLevelFlow(title: string, stepsIn: string[]): Flowchart
   return { png: Buffer.from(resvg.render().asPng()), width: W, height: H };
 }
 
-/** SVG for one high-level flow column at a given origin. Returns parts + height. */
-function highLevelColumn(originX: number, colW: number, title: string, stepsIn: string[]): { svg: string; height: number } {
-  const steps = stepsIn.map((s) => s.trim()).filter(Boolean).slice(0, 14);
-  const cx = originX + colW / 2;
-  const boxW = colW - 40;
-  const termW = 130;
-  const termH = 42;
-  const stepH = 56;
-  const gap = 22;
-  const palette = ['#1565C0', '#00838F', '#6A1B9A', '#283593', '#2E7D32', '#00695C', '#455A64', '#4527A0'];
+// ----------------------------------------------------------------------------
+// REFramework-partitioned high-level flow — the project's high-level steps
+// grouped under the four REFramework states (Initialization / Get Transaction
+// Data / Process Transaction / End Process), rather than a flat flowchart.
+// Used per-project for dispatcher/performer solutions.
+// ----------------------------------------------------------------------------
 
-  const heights = [termH, ...steps.map(() => stepH), termH];
-  const centers: number[] = [];
-  let y = 52;
-  for (const h of heights) { centers.push(y + h / 2); y += h + gap; }
-  const height = y - gap + 10;
+const PART_STATES: { key: 'init' | 'get' | 'process' | 'end'; name: string; color: string }[] = [
+  { key: 'init', name: 'Initialization', color: '#2E7D32' },
+  { key: 'get', name: 'Get Transaction Data', color: '#1565C0' },
+  { key: 'process', name: 'Process Transaction', color: '#6A1B9A' },
+  { key: 'end', name: 'End Process', color: '#B00020' },
+];
 
-  const parts: string[] = [];
-  parts.push(`<text x="${cx}" y="30" fill="#0D47A1" font-size="15" font-weight="700" text-anchor="middle">${esc(truncate(title, 26))}</text>`);
-  for (let i = 0; i < heights.length - 1; i++) {
-    parts.push(`<line x1="${cx}" y1="${centers[i] + heights[i] / 2}" x2="${cx}" y2="${centers[i + 1] - heights[i + 1] / 2 - 2}" stroke="#37474F" stroke-width="1.6" marker-end="url(#hlarr)"/>`);
-  }
-  parts.push(
-    `<rect x="${cx - termW / 2}" y="${centers[0] - termH / 2}" width="${termW}" height="${termH}" rx="${termH / 2}" fill="#2E7D32"/>`,
-    `<text x="${cx}" y="${centers[0] + 5}" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">Start</text>`
-  );
-  steps.forEach((s, i) => {
-    const cy = centers[i + 1];
-    const fill = palette[i % palette.length];
-    const x = cx - boxW / 2;
-    parts.push(`<rect x="${x}" y="${cy - stepH / 2}" width="${boxW}" height="${stepH}" rx="9" fill="${fill}"/>`);
-    parts.push(
-      `<circle cx="${x + 22}" cy="${cy}" r="13" fill="#FFFFFF" opacity="0.9"/>`,
-      `<text x="${x + 22}" y="${cy + 4}" fill="${fill}" font-size="12" font-weight="700" text-anchor="middle">${i + 1}</text>`
-    );
-    parts.push(wrapTspans(s, x + 22 + (boxW - 44) / 2 + 4, cy - (s.length > 30 ? 4 : -4), Math.floor((boxW - 60) / 6.2), 14, 2, 12, '#FFFFFF', '600'));
+/** Bucket high-level steps into the four REFramework states by keyword + position. */
+function bucketSteps(steps: string[]): Record<'init' | 'get' | 'process' | 'end', string[]> {
+  const b = { init: [] as string[], get: [] as string[], process: [] as string[], end: [] as string[] };
+  const RX_INIT = /initiali|config|setting|open applic|launch|start ?up|kill ?process|read config|first run|authenticat|log ?in|sign ?in|obtain.*token|get.*token|credential/i;
+  const RX_GET = /get ?transaction|get ?next|fetch|dequeue|queue ?item|read (the )?(queue|item|record|range|input)|retriev|pick ?up|next item|input data|read data/i;
+  const RX_END = /end ?process|close ?applic|clean ? up|cleanup|finali|log ?out|logout|kill ?all|tear ?down|close all|terminate|send.*report/i;
+  const clean = steps.map((s) => (s || '').trim()).filter(Boolean);
+  clean.forEach((s, i) => {
+    if (RX_END.test(s)) b.end.push(s);
+    else if (RX_GET.test(s)) b.get.push(s);
+    else if (RX_INIT.test(s)) b.init.push(s);
+    else if (i === 0) b.init.push(s); // REFramework always initialises first
+    else b.process.push(s);
   });
-  const eCy = centers[heights.length - 1];
-  parts.push(
-    `<rect x="${cx - termW / 2}" y="${eCy - termH / 2}" width="${termW}" height="${termH}" rx="${termH / 2}" fill="#B00020"/>`,
-    `<text x="${cx}" y="${eCy + 5}" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">End</text>`
-  );
-  return { svg: parts.join(''), height };
+  return b;
 }
 
-/**
- * Render ONE combined end-to-end high-level flow for a multi-project solution:
- * each project's steps under a labelled header band, connected top-to-bottom,
- * with an "Orchestrator Queue" hand-off inserted between a Dispatcher and the
- * following project. Keeps every project's detail in a single connected picture.
- */
-export function renderSolutionFlow(flowsIn: { project: string; steps: string[] }[]): FlowchartImage {
-  const flows = flowsIn
-    .map((f) => ({ project: f.project, steps: f.steps.map((s) => s.trim()).filter(Boolean).slice(0, 10) }))
-    .filter((f) => f.steps.length);
-  if (flows.length <= 1) {
-    const one = flows[0] ?? { project: '', steps: [] };
-    return renderHighLevelFlow(one.project, one.steps);
-  }
+const PF_W = 760;
 
-  type Item =
-    | { t: 'term'; label: string; fill: string }
-    | { t: 'header'; label: string }
-    | { t: 'step'; n: number; label: string; fill: string }
-    | { t: 'queue'; label: string };
-
-  const stepPalette = ['#1565C0', '#00838F', '#6A1B9A', '#283593', '#2E7D32', '#00695C', '#455A64', '#4527A0'];
-  const items: Item[] = [{ t: 'term', label: 'Start', fill: '#2E7D32' }];
-  const isDispatcher = (n: string) => /dispatch/i.test(n);
-  const isPerformer = (n: string) => /perform|process/i.test(n);
-  flows.forEach((f, fi) => {
-    items.push({ t: 'header', label: f.project });
-    f.steps.forEach((s, i) => items.push({ t: 'step', n: i + 1, label: s, fill: stepPalette[i % stepPalette.length] }));
-    if (fi < flows.length - 1 && (isDispatcher(f.project) || isPerformer(flows[fi + 1].project))) {
-      items.push({ t: 'queue', label: 'Orchestrator Queue' });
-    }
-  });
-  items.push({ t: 'term', label: 'End', fill: '#B00020' });
-
-  const W = 640;
-  const cx = W / 2;
-  const boxW = 440;
-  const termW = 140;
-  const gap = 14;
-  const hOf = (it: Item) => (it.t === 'term' ? 40 : it.t === 'header' ? 30 : it.t === 'queue' ? 46 : 48);
-
-  let y = 20;
-  const centers: number[] = [];
-  for (const it of items) { const h = hOf(it); centers.push(y + h / 2); y += h + gap; }
-  const H = y - gap + 20;
-
-  const parts: string[] = [];
-  parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Segoe UI, Arial, sans-serif">`,
-    `<defs><marker id="hlarr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,3 L0,6 z" fill="#37474F"/></marker></defs>`,
-    `<rect x="0" y="0" width="${W}" height="${H}" fill="#FFFFFF"/>`
+function svgDoc(w: number, h: number, inner: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Segoe UI, Arial, sans-serif">` +
+    `<defs><marker id="pfarrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L7,3 L0,6 z" fill="#607D8B"/></marker></defs>` +
+    `<rect x="0" y="0" width="${w}" height="${h}" fill="#FFFFFF"/>${inner}</svg>`
   );
-  // Connectors (skip drawing an arrow INTO a header band; use a plain line there).
-  for (let i = 0; i < items.length - 1; i++) {
-    const y1 = centers[i] + hOf(items[i]) / 2;
-    const y2 = centers[i + 1] - hOf(items[i + 1]) / 2 - 2;
-    const plain = items[i + 1].t === 'header';
-    parts.push(`<line x1="${cx}" y1="${y1}" x2="${cx}" y2="${y2}" stroke="#37474F" stroke-width="1.7" ${plain ? '' : 'marker-end="url(#hlarr)"'}/>`);
-  }
+}
 
-  items.forEach((it, i) => {
-    const cy = centers[i];
-    if (it.t === 'term') {
-      parts.push(
-        `<rect x="${cx - termW / 2}" y="${cy - 20}" width="${termW}" height="40" rx="20" fill="${it.fill}"/>`,
-        `<text x="${cx}" y="${cy + 5}" fill="#fff" font-size="15" font-weight="700" text-anchor="middle">${esc(it.label)}</text>`
-      );
-    } else if (it.t === 'header') {
-      parts.push(
-        `<rect x="${cx - boxW / 2}" y="${cy - 14}" width="${boxW}" height="28" rx="6" fill="#0D47A1"/>`,
-        `<text x="${cx}" y="${cy + 5}" fill="#fff" font-size="13" font-weight="700" letter-spacing="0.5" text-anchor="middle">${esc(truncate(it.label, 46)).toUpperCase()}</text>`
-      );
-    } else if (it.t === 'queue') {
-      const qw = 220, qh = 38, x = cx - qw / 2, ry = 7;
-      parts.push(
-        `<path d="M${x},${cy - qh / 2 + ry} a${qw / 2},${ry} 0 0 1 ${qw},0 v${qh - 2 * ry} a${qw / 2},${ry} 0 0 1 -${qw},0 z" fill="#37474F"/>`,
-        `<ellipse cx="${cx}" cy="${cy - qh / 2 + ry}" rx="${qw / 2}" ry="${ry}" fill="#546E7A"/>`,
-        `<text x="${cx}" y="${cy + 6}" fill="#fff" font-size="11.5" font-weight="700" text-anchor="middle">${esc(it.label)}</text>`
-      );
+function rasterize(svg: string, w: number, h: number): FlowchartImage {
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: w * 2 } });
+  return { png: Buffer.from(resvg.render().asPng()), width: w, height: h };
+}
+
+/** SVG (relative to 0,0) for one project's partitioned diagram + its total height. */
+function partitionedBlock(title: string, steps: string[], w: number): { svg: string; height: number } {
+  const buckets = bucketSteps(steps);
+  const padX = 16;
+  const stripH = 28;
+  const boxH = 34;
+  const boxGap = 8;
+  const rowGap = 6;
+  const perRow = 3;
+  const bandGap = 24;
+  const innerW = w - padX * 2;
+  const boxW = (innerW - (perRow - 1) * boxGap) / perRow;
+  const parts: string[] = [];
+  let y = 0;
+
+  parts.push(`<text x="${w / 2}" y="${y + 15}" fill="#263238" font-size="15" font-weight="700" text-anchor="middle">${esc(title)} — REFramework states</text>`);
+  y += 30;
+
+  const bands: { top: number; bottom: number }[] = [];
+  PART_STATES.forEach((st, si) => {
+    const items = buckets[st.key];
+    const rows = Math.max(1, Math.ceil(items.length / perRow));
+    const bandTop = y;
+    // Colored strip header.
+    parts.push(`<rect x="${padX}" y="${y}" width="${innerW}" height="${stripH}" rx="6" fill="${st.color}"/>`);
+    parts.push(`<circle cx="${padX + 15}" cy="${y + stripH / 2}" r="4.5" fill="#FFFFFF" opacity="0.9"/>`);
+    parts.push(`<text x="${padX + 28}" y="${y + stripH / 2 + 4}" fill="#FFFFFF" font-size="12.5" font-weight="700">${esc(st.name)}</text>`);
+    y += stripH + 8;
+    // Step boxes (wrap perRow).
+    if (items.length) {
+      items.forEach((it, idx) => {
+        const r = Math.floor(idx / perRow);
+        const c = idx % perRow;
+        const bx = padX + c * (boxW + boxGap);
+        const by = y + r * (boxH + rowGap);
+        parts.push(`<rect x="${bx}" y="${by}" width="${boxW}" height="${boxH}" rx="6" fill="#ECEFF1" stroke="${st.color}" stroke-width="1"/>`);
+        parts.push(`<text x="${bx + boxW / 2}" y="${by + boxH / 2 + 4}" fill="#263238" font-size="10.5" text-anchor="middle">${esc(truncate(it, 40))}</text>`);
+      });
+      y += rows * boxH + (rows - 1) * rowGap;
     } else {
-      const x = cx - boxW / 2;
-      parts.push(`<rect x="${x}" y="${cy - 23}" width="${boxW}" height="46" rx="9" fill="${it.fill}"/>`);
-      parts.push(
-        `<circle cx="${x + 24}" cy="${cy}" r="13" fill="#FFFFFF" opacity="0.9"/>`,
-        `<text x="${x + 24}" y="${cy + 4}" fill="${it.fill}" font-size="13" font-weight="700" text-anchor="middle">${it.n}</text>`
-      );
-      parts.push(wrapTspans(it.label, x + 24 + (boxW - 48) / 2 + 4, cy - (it.label.length > 44 ? 4 : -4), Math.floor((boxW - 64) / 6.2), 13, 2, 12, '#FFFFFF', '600'));
+      parts.push(`<text x="${padX + 4}" y="${y + 10}" fill="#90A4AE" font-size="10" font-style="italic">(no steps in this state)</text>`);
+      y += 14;
     }
+    bands.push({ top: bandTop, bottom: y });
+    if (si < PART_STATES.length - 1) {
+      parts.push(`<line x1="${w / 2}" y1="${y + 3}" x2="${w / 2}" y2="${y + bandGap - 3}" stroke="#607D8B" stroke-width="1.6" marker-end="url(#pfarrow)"/>`);
+    }
+    y += bandGap;
   });
 
-  parts.push('</svg>');
-  const resvg = new Resvg(parts.join(''), { fitTo: { mode: 'width', value: W * 2 } });
-  return { png: Buffer.from(resvg.render().asPng()), width: W, height: H };
+  // Loop arrow: Process → Get Transaction Data (right-hand channel).
+  const get = bands[1];
+  const proc = bands[2];
+  const rx = w - padX + 4;
+  parts.push(
+    `<path d="M${w - padX - 2},${proc.top + stripH / 2} L${rx},${proc.top + stripH / 2} L${rx},${get.bottom - 6} L${w - padX - 2},${get.bottom - 6}" ` +
+      `fill="none" stroke="#90A4AE" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#pfarrow)"/>`
+  );
+  return { svg: parts.join(''), height: y };
 }
 
-/**
- * Render one high-level flow per project, side by side (Dispatcher | Performer |
- * Reporter), for a multi-project solution SDD.
- */
-export function renderCombinedHighLevelFlow(flows: { project: string; steps: string[] }[]): FlowchartImage {
-  const usable = flows.filter((f) => f.steps.some((s) => s && s.trim())).slice(0, 4);
-  if (usable.length <= 1) {
-    const one = usable[0] ?? { project: '', steps: [] };
-    return renderHighLevelFlow(one.project, one.steps);
-  }
-  const colW = 360;
-  const W = usable.length * colW + 20;
-  const cols = usable.map((f, i) => highLevelColumn(10 + i * colW, colW, f.project, f.steps));
-  const H = Math.max(...cols.map((c) => c.height)) + 20;
+/** One project's high-level flow, partitioned by REFramework state. */
+export function renderPartitionedFlow(title: string, steps: string[]): FlowchartImage {
+  const block = partitionedBlock(title, steps, PF_W);
+  const h = block.height + 20;
+  return rasterize(svgDoc(PF_W, h, `<g transform="translate(0,12)">${block.svg}</g>`), PF_W, h);
+}
 
-  const parts: string[] = [];
-  parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Segoe UI, Arial, sans-serif">`,
-    `<defs><marker id="hlarr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,3 L0,6 z" fill="#37474F"/></marker></defs>`,
-    `<rect x="0" y="0" width="${W}" height="${H}" fill="#FFFFFF"/>`
-  );
-  for (let i = 1; i < usable.length; i++) {
-    const x = 10 + i * colW;
-    parts.push(`<line x1="${x}" y1="46" x2="${x}" y2="${H - 10}" stroke="#ECEFF1" stroke-width="1"/>`);
-  }
-  cols.forEach((c) => parts.push(c.svg));
-  parts.push('</svg>');
-  const resvg = new Resvg(parts.join(''), { fitTo: { mode: 'width', value: W * 2 } });
-  return { png: Buffer.from(resvg.render().asPng()), width: W, height: H };
+/** Two+ projects (dispatcher/performer): a partitioned flow per project, stacked. */
+export function renderPartitionedFlows(flows: { project: string; steps: string[] }[]): FlowchartImage {
+  const usable = flows.filter((f) => f.steps.some((s) => s && s.trim()));
+  if (usable.length <= 1) return renderPartitionedFlow(usable[0]?.project ?? '', usable[0]?.steps ?? []);
+
+  const gap = 30;
+  let y = 12;
+  let body = '';
+  usable.forEach((f, i) => {
+    const b = partitionedBlock(f.project, f.steps, PF_W);
+    body += `<g transform="translate(0,${y})">${b.svg}</g>`;
+    y += b.height + gap;
+    if (i < usable.length - 1) body += `<line x1="20" y1="${y - gap / 2}" x2="${PF_W - 20}" y2="${y - gap / 2}" stroke="#CFD8DC" stroke-width="1" stroke-dasharray="2 3"/>`;
+  });
+  return rasterize(svgDoc(PF_W, y + 6, body), PF_W, y + 6);
 }

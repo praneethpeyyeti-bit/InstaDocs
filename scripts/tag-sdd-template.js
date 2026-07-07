@@ -79,8 +79,7 @@ function main() {
   xml = replaceSectionBody(
     xml,
     'High level process flow diagrams',
-    imageBlock('INSTADOCS_FLOWCHART_MAIN', 'High-level process flow:') +
-      imageBlock('INSTADOCS_FLOWCHART_PROJECTS', 'Per-process high-level flows:')
+    imageBlock('INSTADOCS_FLOWCHART_MAIN', 'High-level process flow (by REFramework state; one diagram per project):')
   );
   xml = replaceSectionBody(xml, 'Reporting', bulletList('reporting'));
   xml = replaceSectionBody(xml, 'Project folder structure', codeBlock('[[folderStructure]]'));

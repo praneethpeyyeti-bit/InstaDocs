@@ -1,0 +1,6 @@
+{
+    "instadocs.gateway.baseHost": "https://staging.uipath.com",
+    "instadocs.gateway.organization": "ps_india",
+    "instadocs.gateway.tenant": "ProfServ",
+    "instadocs.gateway.model": "anthropic.claude-opus-4-8"
+}
