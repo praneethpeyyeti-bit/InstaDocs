@@ -31,6 +31,11 @@
         "command": "instadocs.generateFromGitUrl",
         "title": "Generate SDD + Test Cases from Git URL",
         "category": "InstaDocs"
+      },
+      {
+        "command": "instadocs.setupGateway",
+        "title": "Set up Gateway (org / tenant / model)",
+        "category": "InstaDocs"
       }
     ],
     "menus": {
@@ -54,16 +59,41 @@
         {
           "command": "instadocs.generateWithGateway",
           "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "instadocs.setupGateway",
+          "when": "true"
         }
       ]
     },
     "configuration": {
       "title": "InstaDocs",
       "properties": {
+        "instadocs.gateway.baseHost": {
+          "type": "string",
+          "default": "",
+          "description": "UiPath Cloud base host, e.g. https://cloud.uipath.com or https://staging.uipath.com. Leave empty to use your signed-in `uip` session. Combined with organization + tenant to build the Gateway URL."
+        },
+        "instadocs.gateway.organization": {
+          "type": "string",
+          "default": "",
+          "description": "UiPath organization LOGICAL NAME (e.g. acme), not the GUID. Leave empty to use your `uip` session."
+        },
+        "instadocs.gateway.tenant": {
+          "type": "string",
+          "default": "",
+          "description": "UiPath tenant name (case-sensitive, e.g. DefaultTenant). Leave empty to use your `uip` session."
+        },
+        "instadocs.gateway.servicePrefix": {
+          "type": "string",
+          "enum": ["", "agenthub_", "orchestrator_"],
+          "default": "",
+          "description": "Gateway service prefix. Leave empty to auto-select (agenthub_ for *.uipath.com, else orchestrator_)."
+        },
         "instadocs.gateway.baseUrl": {
           "type": "string",
           "default": "",
-          "description": "UiPath LLM Gateway chat/completions endpoint URL. Leave empty to auto-derive from your signed-in `uip` session (org/tenant)."
+          "description": "Full LLM Gateway chat/completions URL. Overrides baseHost/organization/tenant. Leave empty to auto-derive."
         },
         "instadocs.gateway.model": {
           "type": "string",

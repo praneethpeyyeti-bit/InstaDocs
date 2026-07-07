@@ -19,12 +19,3 @@ export declare function resolveUiPathSession(): UiPathSession;
  * logged in. The token is never printed (stdout is discarded).
  */
 export declare function refreshUiPathSession(): UiPathSession | undefined;
-/**
- * Build the UiPath LLM Gateway "normalized" chat/completions URL.
- *
- * The gateway is fronted by AgentHub (`agenthub_/llm/...`) on `.uipath.com`, and
- * by Orchestrator (`orchestrator_/llm/...`) elsewhere — matching the official
- * uipath-langchain SDK's endpoint selection. The path uses the org LOGICAL NAME.
- * Returns undefined if any piece is missing.
- */
-export declare function gatewayUrlFromSession(session: UiPathSession): string | undefined;

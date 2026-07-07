@@ -35,7 +35,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveUiPathSession = resolveUiPathSession;
 exports.refreshUiPathSession = refreshUiPathSession;
-exports.gatewayUrlFromSession = gatewayUrlFromSession;
 /**
  * Reuse the signed-in UiPath CLI (`uip`) session so InstaDocs can call the LLM
  * Gateway without the caller pasting a token.
@@ -119,20 +118,5 @@ function refreshUiPathSession() {
     catch {
         return undefined;
     }
-}
-/**
- * Build the UiPath LLM Gateway "normalized" chat/completions URL.
- *
- * The gateway is fronted by AgentHub (`agenthub_/llm/...`) on `.uipath.com`, and
- * by Orchestrator (`orchestrator_/llm/...`) elsewhere — matching the official
- * uipath-langchain SDK's endpoint selection. The path uses the org LOGICAL NAME.
- * Returns undefined if any piece is missing.
- */
-function gatewayUrlFromSession(session) {
-    const { baseHost, organization, tenant } = session;
-    if (!baseHost || !organization || !tenant)
-        return undefined;
-    const service = /\.uipath\.com/i.test(baseHost) ? 'agenthub_' : 'orchestrator_';
-    return `${baseHost}/${organization}/${tenant}/${service}/llm/api/chat/completions`;
 }
 //# sourceMappingURL=uipathSession.js.map

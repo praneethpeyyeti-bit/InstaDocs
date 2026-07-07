@@ -1,9 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.renderFlowchart = renderFlowchart;
 exports.businessLabel = businessLabel;
-exports.laneOf = laneOf;
-exports.renderSwimlane = renderSwimlane;
 exports.isReframework = isReframework;
 exports.renderReframeworkStates = renderReframeworkStates;
 exports.renderArchitecture = renderArchitecture;
@@ -16,13 +13,7 @@ exports.renderSolutionFlow = renderSolutionFlow;
 exports.renderCombinedHighLevelFlow = renderCombinedHighLevelFlow;
 const resvg_js_1 = require("@resvg/resvg-js");
 const MAX_NODES = 18;
-const W = 780;
-const PAD_TOP = 24;
-const GAP = 30;
-const PROC_H = 50;
 const DEC_H = 74;
-const TERM_H = 44;
-const BOX_W = 460;
 const FILL = {
     start: '#2E7D32',
     end: '#B00020',
@@ -52,31 +43,6 @@ const LABEL = {
     if: 'Decision',
     switch: 'Decision',
 };
-function renderFlowchart(graph) {
-    const items = buildItems(graph);
-    const svg = buildSvg(items);
-    const scale = 2; // render at 2x for crisp output
-    const resvg = new resvg_js_1.Resvg(svg, { fitTo: { mode: 'width', value: W * scale } });
-    const png = Buffer.from(resvg.render().asPng());
-    const height = svgHeight(items);
-    return { png, width: W, height };
-}
-function buildItems(graph) {
-    const meaningful = graph.nodes.filter((n) => ['io', 'ui', 'invoke', 'if', 'switch', 'loop', 'throw', 'assign', 'log'].includes(n.kind));
-    const chosen = (meaningful.length ? meaningful : graph.nodes).slice(0, MAX_NODES);
-    const items = [{ kind: 'start', title: 'Start' }];
-    for (const n of chosen)
-        items.push(toItem(n));
-    if ((meaningful.length ? meaningful : graph.nodes).length > MAX_NODES) {
-        items.push({ kind: 'other', title: '… more activities' });
-    }
-    items.push({ kind: 'end', title: 'End' });
-    return items;
-}
-function toItem(n) {
-    const condition = n.raw && n.raw.condition ? String(n.raw.condition) : undefined;
-    return { kind: n.kind, title: businessLabel(n.displayName), condition };
-}
 /** Convert a technical activity name to a business-readable label. */
 function businessLabel(text) {
     let t = text;
@@ -92,204 +58,11 @@ function businessLabel(text) {
     t = t.replace(/^Throw\b/i, 'Raise exception:');
     return t;
 }
-/** Group a node under the application/system swimlane it belongs to. */
-function laneOf(n) {
-    const name = n.displayName;
-    if (/excel|workbook|spreadsheet/i.test(name))
-        return 'MS Excel';
-    if (/mail|email|outlook|smtp|notif/i.test(name))
-        return 'Email';
-    if (/browser|web|http|api|url|navigate/i.test(name))
-        return 'Web / API';
-    if (/sap/i.test(name))
-        return 'SAP';
-    if (/database|sql|query/i.test(name))
-        return 'Database';
-    if (n.kind === 'ui')
-        return 'Business Application';
-    if (n.kind === 'invoke')
-        return 'Sub-process';
-    return 'RPA Bot';
-}
-function itemHeight(kind) {
-    if (kind === 'start' || kind === 'end')
-        return TERM_H;
-    if (kind === 'if' || kind === 'switch')
-        return DEC_H;
-    return PROC_H;
-}
-function svgHeight(items) {
-    let h = PAD_TOP;
-    items.forEach((it, i) => {
-        h += itemHeight(it.kind);
-        if (i < items.length - 1)
-            h += GAP;
-    });
-    return h + PAD_TOP;
-}
-function buildSvg(items) {
-    const height = svgHeight(items);
-    const cx = W / 2;
-    const parts = [];
-    parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${height}" viewBox="0 0 ${W} ${height}" font-family="Segoe UI, Arial, sans-serif">`, `<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">` +
-        `<path d="M0,0 L8,3 L0,6 z" fill="#37474F"/></marker></defs>`, `<rect x="0" y="0" width="${W}" height="${height}" fill="#FFFFFF"/>`);
-    // Compute vertical center of each item.
-    const centers = [];
-    let y = PAD_TOP;
-    for (let i = 0; i < items.length; i++) {
-        const h = itemHeight(items[i].kind);
-        centers.push(y + h / 2);
-        y += h + GAP;
-    }
-    // Arrows first (behind shapes).
-    for (let i = 0; i < items.length - 1; i++) {
-        const y1 = centers[i] + itemHeight(items[i].kind) / 2;
-        const y2 = centers[i + 1] - itemHeight(items[i + 1].kind) / 2;
-        parts.push(`<line x1="${cx}" y1="${y1}" x2="${cx}" y2="${y2 - 2}" stroke="#37474F" stroke-width="1.6" marker-end="url(#arrow)"/>`);
-    }
-    // Shapes.
-    items.forEach((it, i) => {
-        parts.push(shape(it, cx, centers[i]));
-    });
-    parts.push('</svg>');
-    return parts.join('');
-}
-function shape(it, cx, cy) {
-    const fill = FILL[it.kind] ?? FILL.other;
-    const isDecision = it.kind === 'if' || it.kind === 'switch';
-    const isTerm = it.kind === 'start' || it.kind === 'end';
-    const tag = LABEL[it.kind] ?? 'Step';
-    const dark = isDecision; // amber → dark text
-    const textColor = dark ? '#212121' : '#FFFFFF';
-    let body;
-    if (isDecision) {
-        const hw = BOX_W / 2;
-        const hh = DEC_H / 2;
-        const pts = `${cx},${cy - hh} ${cx + hw},${cy} ${cx},${cy + hh} ${cx - hw},${cy}`;
-        body = `<polygon points="${pts}" fill="${fill}" stroke="#00000022"/>`;
-    }
-    else if (isTerm) {
-        const w = 150;
-        const x = cx - w / 2;
-        body = `<rect x="${x}" y="${cy - TERM_H / 2}" width="${w}" height="${TERM_H}" rx="${TERM_H / 2}" ry="${TERM_H / 2}" fill="${fill}"/>`;
-    }
-    else {
-        const x = cx - BOX_W / 2;
-        body = `<rect x="${x}" y="${cy - PROC_H / 2}" width="${BOX_W}" height="${PROC_H}" rx="8" ry="8" fill="${fill}"/>`;
-    }
-    const labelRun = isTerm
-        ? `<text x="${cx}" y="${cy + 5}" fill="${textColor}" font-size="16" font-weight="600" text-anchor="middle">${esc(it.title)}</text>`
-        : decoratedText(it, cx, cy, tag, textColor, isDecision);
-    return body + labelRun;
-}
-function decoratedText(it, cx, cy, tag, color, isDecision) {
-    const title = truncate(it.title, isDecision ? 40 : 52);
-    const cond = it.condition ? truncate(it.condition, 46) : '';
-    const tagRun = `<text x="${cx}" y="${cy - (cond ? 12 : 6)}" fill="${color}" font-size="10" font-weight="700" letter-spacing="0.5" text-anchor="middle" opacity="0.85">${esc(tag.toUpperCase())}</text>`;
-    const titleRun = `<text x="${cx}" y="${cy + (cond ? 4 : 8)}" fill="${color}" font-size="13" font-weight="600" text-anchor="middle">${esc(title)}</text>`;
-    const condRun = cond
-        ? `<text x="${cx}" y="${cy + 20}" fill="${color}" font-size="10" text-anchor="middle" opacity="0.9">${esc(cond)}</text>`
-        : '';
-    return tagRun + titleRun + condRun;
-}
 function truncate(s, n) {
     return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 function esc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-// ----------------------------------------------------------------------------
-// Swimlane (As-Is) — a cross-functional flowchart grouped by application/system.
-// ----------------------------------------------------------------------------
-const LANE_COLORS = ['#1565C0', '#00838F', '#6A1B9A', '#283593', '#2E7D32', '#B71C1C', '#455A64', '#795548'];
-const LANE_W = 230;
-const HEADER_H = 46;
-const ROW_H = 72;
-const SW_PADX = 12;
-const SW_PADTOP = HEADER_H + 16;
-const SW_PADBOT = 18;
-function renderSwimlane(graph) {
-    const meaningful = graph.nodes
-        .filter((n) => ['io', 'ui', 'invoke', 'if', 'switch', 'loop', 'throw', 'assign', 'log'].includes(n.kind))
-        .slice(0, MAX_NODES);
-    const rows = [
-        { lane: 'RPA Bot', kind: 'start', label: 'Start' },
-        ...meaningful.map((n) => ({
-            lane: laneOf(n),
-            kind: n.kind,
-            label: businessLabel(n.displayName),
-            condition: n.raw && n.raw.condition ? String(n.raw.condition) : undefined,
-        })),
-        { lane: 'RPA Bot', kind: 'end', label: 'End' },
-    ];
-    const lanes = [];
-    for (const r of rows)
-        if (!lanes.includes(r.lane))
-            lanes.push(r.lane);
-    const W = SW_PADX * 2 + lanes.length * LANE_W;
-    const H = SW_PADTOP + rows.length * ROW_H + SW_PADBOT;
-    const laneColor = (lane) => LANE_COLORS[lanes.indexOf(lane) % LANE_COLORS.length];
-    const laneCx = (lane) => SW_PADX + lanes.indexOf(lane) * LANE_W + LANE_W / 2;
-    const rowCy = (i) => SW_PADTOP + i * ROW_H + ROW_H / 2;
-    const parts = [];
-    parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Segoe UI, Arial, sans-serif">`, `<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">` +
-        `<path d="M0,0 L8,3 L0,6 z" fill="#37474F"/></marker></defs>`, `<rect x="0" y="0" width="${W}" height="${H}" fill="#FFFFFF"/>`);
-    // Lane headers + column separators.
-    lanes.forEach((lane, li) => {
-        const x = SW_PADX + li * LANE_W;
-        parts.push(`<rect x="${x + 3}" y="8" width="${LANE_W - 6}" height="${HEADER_H - 10}" rx="6" fill="${laneColor(lane)}"/>`, `<text x="${x + LANE_W / 2}" y="${8 + (HEADER_H - 10) / 2 + 5}" fill="#FFFFFF" font-size="14" font-weight="700" text-anchor="middle">${esc(lane)}</text>`, `<line x1="${x}" y1="${HEADER_H + 4}" x2="${x}" y2="${H - 6}" stroke="#ECEFF1" stroke-width="1"/>`);
-    });
-    parts.push(`<line x1="${W - SW_PADX}" y1="${HEADER_H + 4}" x2="${W - SW_PADX}" y2="${H - 6}" stroke="#ECEFF1" stroke-width="1"/>`);
-    // Orthogonal connectors between consecutive rows.
-    for (let i = 0; i < rows.length - 1; i++) {
-        const x1 = laneCx(rows[i].lane);
-        const x2 = laneCx(rows[i + 1].lane);
-        const y1 = rowCy(i) + halfH(rows[i].kind);
-        const y2 = rowCy(i + 1) - halfH(rows[i + 1].kind);
-        const midY = (y1 + y2) / 2;
-        const d = x1 === x2 ? `M${x1},${y1} L${x2},${y2 - 2}` : `M${x1},${y1} L${x1},${midY} L${x2},${midY} L${x2},${y2 - 2}`;
-        parts.push(`<path d="${d}" fill="none" stroke="#37474F" stroke-width="1.6" marker-end="url(#arrow)"/>`);
-    }
-    // Shapes.
-    rows.forEach((r, i) => parts.push(swimShape(r, laneCx(r.lane), rowCy(i), laneColor(r.lane))));
-    parts.push('</svg>');
-    const svg = parts.join('');
-    const resvg = new resvg_js_1.Resvg(svg, { fitTo: { mode: 'width', value: W * 2 } });
-    return { png: Buffer.from(resvg.render().asPng()), width: W, height: H };
-}
-function halfH(kind) {
-    if (kind === 'start' || kind === 'end')
-        return 20;
-    if (kind === 'if' || kind === 'switch')
-        return 29;
-    return 23;
-}
-function swimShape(r, cx, cy, color) {
-    const bw = LANE_W - 44;
-    const isDecision = r.kind === 'if' || r.kind === 'switch';
-    const isTerm = r.kind === 'start' || r.kind === 'end';
-    // Diamonds are narrower than rectangles, so truncate their text harder.
-    const label = truncate(r.label, isDecision ? 16 : 26);
-    const cond = r.condition ? truncate(r.condition, isDecision ? 18 : 28) : '';
-    const titleSize = isDecision ? 10.5 : 12;
-    let body;
-    if (isDecision) {
-        const hw = bw / 2 + 12; // widen the diamond a touch for the label
-        const hh = 30;
-        body = `<polygon points="${cx},${cy - hh} ${cx + hw},${cy} ${cx},${cy + hh} ${cx - hw},${cy}" fill="${color}" stroke="#00000022"/>`;
-    }
-    else if (isTerm) {
-        const w = 120;
-        body = `<rect x="${cx - w / 2}" y="${cy - 20}" width="${w}" height="40" rx="20" ry="20" fill="${color}"/>`;
-    }
-    else {
-        body = `<rect x="${cx - bw / 2}" y="${cy - 23}" width="${bw}" height="46" rx="7" ry="7" fill="${color}"/>`;
-    }
-    const title = `<text x="${cx}" y="${cy + (cond ? -1 : 5)}" fill="#FFFFFF" font-size="${titleSize}" font-weight="600" text-anchor="middle">${esc(label)}</text>`;
-    const condRun = cond
-        ? `<text x="${cx}" y="${cy + 13}" fill="#FFFFFF" font-size="9" text-anchor="middle" opacity="0.9">${esc(cond)}</text>`
-        : '';
-    return body + title + condRun;
 }
 // ----------------------------------------------------------------------------
 // REFramework state machine — the canonical 4-state process design diagram.

@@ -43,11 +43,14 @@ export type { AddEnrichOptions } from './analyze/add';
 export { compactGraph } from './analyze/compact';
 export type { SddEnrichOptions } from './analyze/sdd';
 export type { GatewayConfig } from './analyze/gateway';
-export {
-  resolveUiPathSession,
-  gatewayUrlFromSession,
-} from './analyze/uipathSession';
+export { resolveUiPathSession } from './analyze/uipathSession';
 export type { UiPathSession } from './analyze/uipathSession';
+export {
+  resolveGatewayConfig,
+  loadInstadocsConfig,
+  DEFAULT_GATEWAY_MODEL,
+} from './analyze/gatewayConfig';
+export type { InstadocsGatewayConfig, GatewayResolution } from './analyze/gatewayConfig';
 export { sddToMarkdown, addToMarkdown, testCasesToMarkdown } from './export/sddMarkdown';
 export {
   exportDeliverables,

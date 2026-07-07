@@ -11,8 +11,8 @@ import {
   testCasesToMarkdown,
   GatewayConfig,
   RepoSource,
-  resolveUiPathSession,
-  gatewayUrlFromSession,
+  resolveGatewayConfig,
+  InstadocsGatewayConfig,
 } from '@instadocs/core';
 import { renderWebview } from './webview';
 
@@ -41,8 +41,102 @@ export function activate(context: vscode.ExtensionContext): void {
         ignoreFocusOut: true,
       });
       await generate(context, { location: url, branch: branch || undefined });
-    })
+    }),
+    // Guided setup: write the Gateway settings without touching a file or the UI.
+    vscode.commands.registerCommand('instadocs.setupGateway', () => setupGateway(context))
   );
+}
+
+/** Guided wizard that writes the InstaDocs Gateway settings (org / tenant / host / model). */
+async function setupGateway(context: vscode.ExtensionContext): Promise<void> {
+  const cancelled = 'InstaDocs: setup cancelled.';
+
+  // 1. Where to save.
+  const hasWs = !!vscode.workspace.workspaceFolders?.length;
+  const scopePick = await vscode.window.showQuickPick(
+    [
+      { label: 'All my projects (User settings)', target: vscode.ConfigurationTarget.Global },
+      ...(hasWs ? [{ label: 'This workspace only', target: vscode.ConfigurationTarget.Workspace }] : []),
+    ],
+    { title: 'InstaDocs Gateway setup — where to save', ignoreFocusOut: true }
+  );
+  if (!scopePick) return void vscode.window.showInformationMessage(cancelled);
+  const target = scopePick.target;
+
+  // 2. Base host.
+  const hostPick = await vscode.window.showQuickPick(
+    ['https://cloud.uipath.com', 'https://staging.uipath.com', 'https://alpha.uipath.com', 'Other…'],
+    { title: 'UiPath Cloud base host', ignoreFocusOut: true }
+  );
+  if (!hostPick) return void vscode.window.showInformationMessage(cancelled);
+  let baseHost = hostPick;
+  if (hostPick === 'Other…') {
+    const v = await vscode.window.showInputBox({ title: 'Base host URL', placeHolder: 'https://my-uipath-host', ignoreFocusOut: true, validateInput: (s) => (/^https?:\/\//i.test(s) ? undefined : 'Must start with http(s)://') });
+    if (!v) return void vscode.window.showInformationMessage(cancelled);
+    baseHost = v.trim();
+  }
+
+  // 3. Organization (logical name).
+  const organization = await vscode.window.showInputBox({
+    title: 'Organization logical name (not the GUID)',
+    placeHolder: 'e.g. acme',
+    ignoreFocusOut: true,
+    validateInput: (s) => (s.trim() ? undefined : 'Required'),
+  });
+  if (!organization) return void vscode.window.showInformationMessage(cancelled);
+
+  // 4. Tenant.
+  const tenant = await vscode.window.showInputBox({
+    title: 'Tenant name (case-sensitive)',
+    placeHolder: 'e.g. DefaultTenant',
+    ignoreFocusOut: true,
+    validateInput: (s) => (s.trim() ? undefined : 'Required'),
+  });
+  if (!tenant) return void vscode.window.showInformationMessage(cancelled);
+
+  // 5. Model.
+  const KNOWN_MODELS = [
+    'anthropic.claude-opus-4-8',
+    'anthropic.claude-opus-4-7',
+    'anthropic.claude-sonnet-4-5-20250929-v1:0',
+    'anthropic.claude-haiku-4-5-20251001-v1:0',
+    'Other…',
+  ];
+  const modelPick = await vscode.window.showQuickPick(KNOWN_MODELS, { title: 'Model (must be routable in your tenant)', ignoreFocusOut: true });
+  if (!modelPick) return void vscode.window.showInformationMessage(cancelled);
+  let model = modelPick;
+  if (modelPick === 'Other…') {
+    const v = await vscode.window.showInputBox({ title: 'Model id', placeHolder: 'anthropic.claude-…', ignoreFocusOut: true, validateInput: (s) => (s.trim() ? undefined : 'Required') });
+    if (!v) return void vscode.window.showInformationMessage(cancelled);
+    model = v.trim();
+  }
+
+  // Write settings.
+  const cfg = vscode.workspace.getConfiguration('instadocs');
+  await cfg.update('gateway.baseHost', baseHost, target);
+  await cfg.update('gateway.organization', organization.trim(), target);
+  await cfg.update('gateway.tenant', tenant.trim(), target);
+  await cfg.update('gateway.model', model, target);
+
+  // 6. Auth: prefer uip login; optionally store a token now.
+  const authPick = await vscode.window.showQuickPick(
+    ['I will sign in with `uip login` (recommended, auto-refreshes)', 'Enter a token now (headless / CI — expires)'],
+    { title: 'How will you authenticate?', ignoreFocusOut: true }
+  );
+  if (authPick && authPick.startsWith('Enter a token')) {
+    const token = await vscode.window.showInputBox({ title: 'UiPath Gateway token (stored in SecretStorage)', password: true, ignoreFocusOut: true });
+    if (token) await context.secrets.store(SECRET_TOKEN_KEY, token.trim());
+  }
+
+  // Confirm + preview the resolved URL.
+  const resolved = resolveGatewayConfig({ baseHost, organization: organization.trim(), tenant: tenant.trim(), model }, undefined);
+  const urlNote = resolved.config ? resolved.config.baseUrl : '(URL will resolve once you sign in)';
+  const next = await vscode.window.showInformationMessage(
+    `InstaDocs Gateway configured (${scopePick.label}).\nEndpoint: ${urlNote}`,
+    'Done',
+    'Generate now'
+  );
+  if (next === 'Generate now') await vscode.commands.executeCommand('instadocs.generateWithGateway');
 }
 
 export function deactivate(): void {
@@ -69,7 +163,7 @@ async function generate(
   if (!source) return;
 
   // LLM-only: the UiPath LLM Gateway is always required (no deterministic mode).
-  const gateway = await resolveGateway(context);
+  const gateway = await resolveGateway(context, localFolder(source));
   if (!gateway) {
     vscode.window.showErrorMessage(
       'InstaDocs needs the UiPath LLM Gateway. Sign in with `uip login` (or set the Gateway URL/token in settings), then try again.'
@@ -200,32 +294,43 @@ function openExternal(fsPath: string): void {
 }
 
 /**
- * Build a GatewayConfig from (1) explicit settings/SecretStorage, else (2) the
- * signed-in UiPath `uip` session (token + org/tenant → URL). Returns undefined
- * when neither yields a URL + token (=> deterministic unless strict).
+ * Build a GatewayConfig by merging InstaDocs settings + a project-level
+ * `instadocs.config.json` + env + the signed-in `uip` session (via the shared
+ * core resolver). A customer configures org/tenant/host/model/URL/token via any
+ * of those — no code change. Returns undefined when URL + token can't be found.
  */
 async function resolveGateway(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  startDir?: string
 ): Promise<GatewayConfig | undefined> {
   const cfg = vscode.workspace.getConfiguration('instadocs');
-  const model = cfg.get<string>('gateway.model')?.trim() || 'anthropic.claude-opus-4-8';
-  const session = resolveUiPathSession();
+  const get = (k: string) => cfg.get<string>(k)?.trim() || undefined;
+  const storedToken = await context.secrets.get(SECRET_TOKEN_KEY);
 
-  const baseUrl = cfg.get<string>('gateway.baseUrl')?.trim() || gatewayUrlFromSession(session);
-  if (!baseUrl) return undefined;
+  const overrides: InstadocsGatewayConfig = {
+    baseHost: get('gateway.baseHost'),
+    organization: get('gateway.organization'),
+    tenant: get('gateway.tenant'),
+    servicePrefix: get('gateway.servicePrefix'),
+    gatewayUrl: get('gateway.baseUrl'),
+    model: get('gateway.model'),
+    token: storedToken || undefined,
+  };
 
-  // Prefer an explicitly stored token; else reuse the uip session token.
-  let token = (await context.secrets.get(SECRET_TOKEN_KEY)) || session.token;
-  if (!token && cfg.get<string>('gateway.baseUrl')?.trim()) {
-    // A manual URL was set but no token — prompt once and store it.
-    token = await vscode.window.showInputBox({
+  let { config } = resolveGatewayConfig(overrides, startDir);
+  if (config) return config;
+
+  // A manual URL/host is configured but no token — prompt once, store, retry.
+  if ((overrides.gatewayUrl || overrides.baseHost) && !storedToken) {
+    const token = await vscode.window.showInputBox({
       prompt: 'UiPath LLM Gateway token (stored securely in VS Code SecretStorage)',
       password: true,
       ignoreFocusOut: true,
     });
-    if (token) await context.secrets.store(SECRET_TOKEN_KEY, token);
+    if (token) {
+      await context.secrets.store(SECRET_TOKEN_KEY, token);
+      config = resolveGatewayConfig({ ...overrides, token }, startDir).config;
+    }
   }
-  if (!token) return undefined;
-
-  return { baseUrl, model, token };
+  return config;
 }

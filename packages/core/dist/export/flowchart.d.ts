@@ -1,4 +1,4 @@
-import { ProcessGraph, ProcessNode } from '../model/ir';
+import { ProcessGraph } from '../model/ir';
 import { AgentSpec } from '../model/agent';
 /**
  * Render the process as a colored flowchart image (PNG) straight from the
@@ -15,12 +15,8 @@ export interface FlowchartImage {
     width: number;
     height: number;
 }
-export declare function renderFlowchart(graph: ProcessGraph): FlowchartImage;
 /** Convert a technical activity name to a business-readable label. */
 export declare function businessLabel(text: string): string;
-/** Group a node under the application/system swimlane it belongs to. */
-export declare function laneOf(n: ProcessNode): string;
-export declare function renderSwimlane(graph: ProcessGraph): FlowchartImage;
 /** True when the project is built on the UiPath REFramework (state machine). */
 export declare function isReframework(graph: ProcessGraph): boolean;
 /**

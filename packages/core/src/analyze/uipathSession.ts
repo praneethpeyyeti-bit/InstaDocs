@@ -91,18 +91,3 @@ export function refreshUiPathSession(): UiPathSession | undefined {
     return undefined;
   }
 }
-
-/**
- * Build the UiPath LLM Gateway "normalized" chat/completions URL.
- *
- * The gateway is fronted by AgentHub (`agenthub_/llm/...`) on `.uipath.com`, and
- * by Orchestrator (`orchestrator_/llm/...`) elsewhere — matching the official
- * uipath-langchain SDK's endpoint selection. The path uses the org LOGICAL NAME.
- * Returns undefined if any piece is missing.
- */
-export function gatewayUrlFromSession(session: UiPathSession): string | undefined {
-  const { baseHost, organization, tenant } = session;
-  if (!baseHost || !organization || !tenant) return undefined;
-  const service = /\.uipath\.com/i.test(baseHost) ? 'agenthub_' : 'orchestrator_';
-  return `${baseHost}/${organization}/${tenant}/${service}/llm/api/chat/completions`;
-}

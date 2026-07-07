@@ -1,0 +1,20 @@
+{
+  "//": "Rename to instadocs.config.json and drop it next to the automation project (or in ~/.instadocs/). Any field can be omitted — omitted fields fall back to env vars, then your `uip login` session. Delete the keys you don't need.",
+
+  "gateway": {
+    "baseHost": "https://cloud.uipath.com",
+    "organization": "your-org-logical-name",
+    "tenant": "YourTenant",
+
+    "//model": "Pick a model routable in your tenant.",
+    "model": "anthropic.claude-opus-4-8",
+
+    "//servicePrefix": "Optional. Auto-selected (agenthub_ for *.uipath.com, else orchestrator_). Override only for non-standard/on-prem routing.",
+    "servicePrefix": "",
+
+    "//gatewayUrl": "Optional full-URL override; wins over baseHost/organization/tenant.",
+    "gatewayUrl": "",
+
+    "//token": "Optional. Prefer `uip login` (auto-refreshed). Only set a PAT/token here for headless/CI where you cannot run uip login. Do NOT commit a real token."
+  }
+}

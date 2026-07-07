@@ -36,7 +36,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fillTestCasesXlsx = exports.fillAddDocx = exports.fillSddDocx = exports.exportDeliverables = exports.testCasesToMarkdown = exports.addToMarkdown = exports.sddToMarkdown = exports.gatewayUrlFromSession = exports.resolveUiPathSession = exports.compactGraph = exports.enrichAdd = exports.enrichSdd = exports.parseAgent = exports.parseProject = exports.openRepo = exports.isSolution = exports.discoverProjects = exports.detectDocType = exports.detectPlatform = exports.loadProjectContext = void 0;
+exports.fillTestCasesXlsx = exports.fillAddDocx = exports.fillSddDocx = exports.exportDeliverables = exports.testCasesToMarkdown = exports.addToMarkdown = exports.sddToMarkdown = exports.DEFAULT_GATEWAY_MODEL = exports.loadInstadocsConfig = exports.resolveGatewayConfig = exports.resolveUiPathSession = exports.compactGraph = exports.enrichAdd = exports.enrichSdd = exports.parseAgent = exports.parseProject = exports.openRepo = exports.isSolution = exports.discoverProjects = exports.detectDocType = exports.detectPlatform = exports.loadProjectContext = void 0;
 exports.runPipeline = runPipeline;
 /**
  * @instadocs/core — public API.
@@ -88,7 +88,10 @@ var compact_1 = require("./analyze/compact");
 Object.defineProperty(exports, "compactGraph", { enumerable: true, get: function () { return compact_1.compactGraph; } });
 var uipathSession_1 = require("./analyze/uipathSession");
 Object.defineProperty(exports, "resolveUiPathSession", { enumerable: true, get: function () { return uipathSession_1.resolveUiPathSession; } });
-Object.defineProperty(exports, "gatewayUrlFromSession", { enumerable: true, get: function () { return uipathSession_1.gatewayUrlFromSession; } });
+var gatewayConfig_1 = require("./analyze/gatewayConfig");
+Object.defineProperty(exports, "resolveGatewayConfig", { enumerable: true, get: function () { return gatewayConfig_1.resolveGatewayConfig; } });
+Object.defineProperty(exports, "loadInstadocsConfig", { enumerable: true, get: function () { return gatewayConfig_1.loadInstadocsConfig; } });
+Object.defineProperty(exports, "DEFAULT_GATEWAY_MODEL", { enumerable: true, get: function () { return gatewayConfig_1.DEFAULT_GATEWAY_MODEL; } });
 var sddMarkdown_1 = require("./export/sddMarkdown");
 Object.defineProperty(exports, "sddToMarkdown", { enumerable: true, get: function () { return sddMarkdown_1.sddToMarkdown; } });
 Object.defineProperty(exports, "addToMarkdown", { enumerable: true, get: function () { return sddMarkdown_1.addToMarkdown; } });

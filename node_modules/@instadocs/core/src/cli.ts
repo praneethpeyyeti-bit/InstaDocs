@@ -18,8 +18,7 @@ import { openRepo } from './repo';
 import { detectPlatform } from './detect';
 import { parseProject } from './parse';
 import { loadProjectContext } from './context/projectContext';
-import { GatewayConfig } from './analyze/gateway';
-import { resolveUiPathSession, gatewayUrlFromSession } from './analyze/uipathSession';
+import { resolveGatewayConfig } from './analyze/gatewayConfig';
 import { Platform } from './model/ir';
 import { DocType } from './detect/docType';
 
@@ -83,24 +82,6 @@ async function dumpCompact(args: Args): Promise<void> {
   }
 }
 
-/**
- * Resolve LLM Gateway config from (1) explicit INSTADOCS_GATEWAY_* env, then
- * (2) the signed-in UiPath `uip` session (token + org/tenant → URL). The token
- * is read by this process from its own provider store; it is never printed.
- */
-function resolveGateway(): { config?: GatewayConfig; note: string } {
-  const model = process.env.INSTADOCS_GATEWAY_MODEL || 'anthropic.claude-opus-4-8';
-  const session = resolveUiPathSession();
-
-  const baseUrl = process.env.INSTADOCS_GATEWAY_URL || gatewayUrlFromSession(session);
-  const token = process.env.INSTADOCS_GATEWAY_TOKEN || session.token;
-
-  if (!baseUrl) return { note: 'no Gateway URL (set INSTADOCS_GATEWAY_URL or org/tenant)' };
-  if (!token) return { note: 'no token (set INSTADOCS_GATEWAY_TOKEN or run `uip login`)' };
-  const src = process.env.INSTADOCS_GATEWAY_TOKEN ? 'env token' : 'uip session token';
-  return { config: { baseUrl, token, model }, note: `${baseUrl} (${src}, model ${model})` };
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!args.location) {
@@ -120,7 +101,10 @@ async function main(): Promise<void> {
     console.error(`• Using pre-authored analysis: ${args.model}`);
   }
 
-  const { config: gateway, note } = resolveGateway();
+  // Resolve Gateway config from env / instadocs.config.json (searched from the
+  // project dir) / the uip session. Customers configure via any of those.
+  const startDir = args.location && !/^(https?|git|ssh):/i.test(args.location) ? args.location : undefined;
+  const { config: gateway, note } = resolveGatewayConfig({}, startDir);
   if (!preAuthored) {
     // LLM-only: the Gateway is required (no deterministic mode).
     console.error(`• LLM Gateway (required): ${gateway ? note : 'NOT AVAILABLE — ' + note}`);
