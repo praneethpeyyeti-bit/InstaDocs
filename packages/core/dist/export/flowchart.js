@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.businessLabel = businessLabel;
+exports.renderEntryDiagram = renderEntryDiagram;
 exports.isReframework = isReframework;
 exports.renderReframeworkStates = renderReframeworkStates;
 exports.renderArchitecture = renderArchitecture;
@@ -9,6 +10,8 @@ exports.renderAgenticEcosystem = renderAgenticEcosystem;
 exports.renderProcessFlow = renderProcessFlow;
 exports.hasHighLevelSteps = hasHighLevelSteps;
 exports.renderHighLevelFlow = renderHighLevelFlow;
+exports.renderTechnicalFlow = renderTechnicalFlow;
+exports.renderStateMachine = renderStateMachine;
 exports.renderPartitionedFlow = renderPartitionedFlow;
 exports.renderPartitionedFlows = renderPartitionedFlows;
 const resvg_js_1 = require("@resvg/resvg-js");
@@ -67,6 +70,26 @@ function esc(s) {
 // ----------------------------------------------------------------------------
 // REFramework state machine — the canonical 4-state process design diagram.
 // ----------------------------------------------------------------------------
+/**
+ * THE single decision point for a project's process-design diagram. Both the SDD
+ * exporter and any test call this, so a project always renders the same way with
+ * no per-project tuning:
+ *   1. real parsed StateMachine  -> code-derived state chart
+ *   2. REFramework (by layout/keyword) -> state swimlane from high-level steps
+ *   3. everything else (Flowchart/Sequence) -> high-level technical flow
+ * `steps` are the project's high-level business steps (LLM or derived); only the
+ * REFramework-without-a-parsed-machine branch needs them.
+ */
+function renderEntryDiagram(projectName, graph, steps = []) {
+    if (graph.stateMachine && graph.stateMachine.states.length) {
+        return renderStateMachine(projectName, graph.stateMachine);
+    }
+    const reframework = graph.layout === 'statemachine' || (!graph.layout && isReframework(graph));
+    if (reframework) {
+        return steps.some((s) => s && s.trim()) ? renderPartitionedFlow(projectName, steps) : renderReframeworkStates();
+    }
+    return renderTechnicalFlow(projectName, graph);
+}
 /** True when the project is built on the UiPath REFramework (state machine). */
 function isReframework(graph) {
     const ctx = graph.projectContext;
@@ -81,7 +104,18 @@ function isReframework(graph) {
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
-    return /reframework|robotic enterprise framework|gettransactiondata|settransactionstatus|initallsettings/.test(hay);
+    // Strong structural signals (the REFramework state workflows themselves).
+    if (/reframework|robotic enterprise framework|gettransactiondata|settransactionstatus|initallsettings/.test(hay)) {
+        return true;
+    }
+    // Naming convention: a "Performer" (the transactional processor half of the
+    // Dispatcher/Performer pattern) is a REFramework project by convention — even
+    // for a thin project whose workflows weren't parsed. A "Dispatcher" is NOT
+    // (it only enqueues), so it stays a plain flowchart.
+    const name = (graph.projectName || '').toLowerCase();
+    if (/\bperformer\b|_performer|performer$/.test(name))
+        return true;
+    return false;
 }
 /**
  * Render the four REFramework states (Initialize, Get Transaction Data, Process
@@ -623,34 +657,65 @@ function renderHighLevelFlow(title, stepsIn) {
 // Data / Process Transaction / End Process), rather than a flat flowchart.
 // Used per-project for dispatcher/performer solutions.
 // ----------------------------------------------------------------------------
-const PART_STATES = [
-    { key: 'init', name: 'Initialization', color: '#2E7D32' },
+const SWIM_STATES = [
+    { key: 'init', name: 'Init', color: '#2E7D32' },
     { key: 'get', name: 'Get Transaction Data', color: '#1565C0' },
     { key: 'process', name: 'Process Transaction', color: '#6A1B9A' },
     { key: 'end', name: 'End Process', color: '#B00020' },
 ];
-/** Bucket high-level steps into the four REFramework states by keyword + position. */
+/**
+ * Bucket high-level steps into the four REFramework states. Position-aware:
+ * in REFramework, everything up to the first transaction/queue fetch is part of
+ * Initialization (app launch + navigation + reading input), the fetch itself is
+ * Get Transaction Data, per-item work is Process Transaction, and teardown is
+ * End Process. This mirrors how a real state machine assigns activities.
+ */
 function bucketSteps(steps) {
     const b = { init: [], get: [], process: [], end: [] };
-    const RX_INIT = /initiali|config|setting|open applic|launch|start ?up|kill ?process|read config|first run|authenticat|log ?in|sign ?in|obtain.*token|get.*token|credential/i;
-    const RX_GET = /get ?transaction|get ?next|fetch|dequeue|queue ?item|read (the )?(queue|item|record|range|input)|retriev|pick ?up|next item|input data|read data/i;
-    const RX_END = /end ?process|close ?applic|clean ? up|cleanup|finali|log ?out|logout|kill ?all|tear ?down|close all|terminate|send.*report/i;
+    // Asset/config retrieval is Init even though it says "retrieve".
+    const RX_INIT = /initiali|config|setting|open applic|launch|start ?up|kill ?process|read config|first run|authenticat|log ?in|sign ?in|obtain.*token|get.*token|credential|orchestrator|asset/i;
+    // A genuine transaction fetch — must involve a queue/item/record/transaction, not just "retrieve".
+    const RX_GET = /get ?transaction|get ?next|dequeue|queue ?item|read (the )?(queue|item|record|range|input)|next (item|transaction)|pick ?up.*(item|transaction)|input data|read data/i;
+    const RX_END = /end ?process|close ?applic|clean ?up|cleanup|finali|log ?out|logout|kill ?all|tear ?down|close all|terminate|send.*(report|notification|summary)/i;
     const clean = steps.map((s) => (s || '').trim()).filter(Boolean);
-    clean.forEach((s, i) => {
-        if (RX_END.test(s))
+    let seenGet = false;
+    clean.forEach((s) => {
+        if (RX_END.test(s) && seenGet)
+            b.end.push(s); // teardown only counts after processing began
+        else if (!seenGet && RX_GET.test(s)) {
+            b.get.push(s);
+            seenGet = true;
+        }
+        else if (!seenGet)
+            b.init.push(s); // everything before the first fetch is setup
+        else if (RX_END.test(s))
             b.end.push(s);
         else if (RX_GET.test(s))
             b.get.push(s);
-        else if (RX_INIT.test(s))
-            b.init.push(s);
-        else if (i === 0)
-            b.init.push(s); // REFramework always initialises first
         else
             b.process.push(s);
     });
+    // If no explicit fetch was found, fall back to keyword-only split so Init isn't the whole list.
+    if (!seenGet && b.process.length === 0) {
+        b.init = [];
+        clean.forEach((s, i) => {
+            if (RX_END.test(s))
+                b.end.push(s);
+            else if (RX_INIT.test(s) || i === 0)
+                b.init.push(s);
+            else
+                b.process.push(s);
+        });
+    }
     return b;
 }
-const PF_W = 760;
+const PF_W = 920; // wide enough for the 4 REFramework state columns
+function isDecisionStep(s) {
+    // A decision is phrased as a question (ends with "?") or opens with an
+    // interrogative/checking verb. Avoid matching action steps that merely
+    // contain a noun like "success" or "exception" ("Set status to success").
+    return /\?\s*$/.test(s) || /^(is|are|has|have|does|do|can|should|was|were|check|verify)\b/i.test(s.trim());
+}
 function svgDoc(w, h, inner) {
     return (`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" font-family="Segoe UI, Arial, sans-serif">` +
         `<defs><marker id="pfarrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L7,3 L0,6 z" fill="#607D8B"/></marker></defs>` +
@@ -660,78 +725,642 @@ function rasterize(svg, w, h) {
     const resvg = new resvg_js_1.Resvg(svg, { fitTo: { mode: 'width', value: w * 2 } });
     return { png: Buffer.from(resvg.render().asPng()), width: w, height: h };
 }
-/** SVG (relative to 0,0) for one project's partitioned diagram + its total height. */
-function partitionedBlock(title, steps, w) {
-    const buckets = bucketSteps(steps);
-    const padX = 16;
-    const stripH = 28;
-    const boxH = 34;
-    const boxGap = 8;
-    const rowGap = 6;
-    const perRow = 3;
-    const bandGap = 24;
-    const innerW = w - padX * 2;
-    const boxW = (innerW - (perRow - 1) * boxGap) / perRow;
+/** Ensure each REFramework lane has at least canonical steps when the LLM gave none. */
+function bucketFallback(buckets) {
+    return {
+        init: buckets.init.length ? buckets.init : ['Initialize application', 'Read config & load settings', 'Retrieve Orchestrator assets'],
+        get: buckets.get.length ? buckets.get : ['Get transaction data from queue'],
+        process: buckets.process.length ? buckets.process : ['Process the transaction item'],
+        end: buckets.end.length ? buckets.end : ['Close all applications', 'Send summary report'],
+    };
+}
+/** Build the canonical REFramework node list for each lane, slotting real steps in. */
+function buildLaneNodes(bucketsIn) {
+    const b = bucketFallback(bucketsIn);
+    const proc = (label, extra = {}) => ({ kind: 'process', label, ...extra });
+    const dec = (label, sideLabel, sideTo, downLabel, exception, retry = false) => ({ kind: 'decision', label, sideLabel, sideTo, downLabel, exception, retry });
+    // Init: Start → open/read → assets check (SE#1) → launch (retry) → app check (SE#2) → rest.
+    const launchIdx = b.init.findIndex((s) => /launch|open applic|start ?up|navigate|log ?in|sign ?in/i.test(s));
+    const launchLabel = launchIdx >= 0 ? b.init[launchIdx] : 'Launch business application';
+    const head = b.init.filter((_, i) => i !== launchIdx).slice(0, 3);
+    const tail = b.init.filter((_, i) => i !== launchIdx).slice(3);
+    const init = [{ kind: 'terminal', label: 'Start' }];
+    head.forEach((s) => init.push(proc(s)));
+    init.push(dec('Config & assets retrieved?', 'NO', 'A', 'YES', 'SE#1'));
+    init.push(proc(launchLabel));
+    init.push(dec('Application accessible?', 'NO', 'A', 'YES', 'SE#2', true));
+    tail.forEach((s) => init.push(proc(s)));
+    // Get Transaction Data: (B re-entry) → new item? (NO→A) → assign to transaction item.
+    const get = [{ kind: 'connector', label: 'B', entry: true }];
+    get.push(dec('New transaction available?', 'NO', 'A', 'YES'));
+    const getRest = b.get.slice();
+    get.push(proc(getRest.shift() ?? 'Assign data to transaction item'));
+    getRest.forEach((s) => get.push(proc(s)));
+    // Process Transaction: steps with two business-rule branches (BE#1/BE#2 → B) → B.
+    const process = [];
+    const ps = b.process.slice(0, 8);
+    const firstBox = ps.shift() ?? 'Open the transaction record';
+    process.push(proc(firstBox));
+    process.push(dec('Already processed?', 'Yes', 'B', 'No', 'BE#1'));
+    const mid = ps.shift();
+    if (mid)
+        process.push(proc(mid));
+    process.push(dec('Needs manual handling?', 'Yes', 'B', 'No', 'BE#2'));
+    ps.forEach((s) => process.push(proc(s)));
+    process.push({ kind: 'connector', label: 'B' });
+    // End Process: (A entry) → system exception? → notify → log → close → terminate → END.
+    const end = [{ kind: 'connector', label: 'A', entry: true }];
+    end.push(dec('Is System Exception?', 'NO', 'A', 'YES'));
+    end.push(proc('Send notification to RPA support team'));
+    end.push(proc('Send notification to business user'));
+    const closeStep = b.end.find((s) => /close|log ?out|kill/i.test(s));
+    end.push(proc(b.end.find((s) => /log|report|summary/i.test(s)) ?? 'Log run summary'));
+    end.push(proc(closeStep ?? 'Close all applications'));
+    end.push(proc('Terminate the bot'));
+    end.push({ kind: 'terminal', label: 'END' });
+    return { init, get, process, end };
+}
+const TECH_STYLE = {
+    ui: { tag: 'UI ACTION', color: '#1565C0', shape: 'box' },
+    io: { tag: 'DATA I/O', color: '#00838F', shape: 'box' },
+    decision: { tag: 'CHECK', color: '#EF6C00', shape: 'decision' },
+    loop: { tag: 'LOOP', color: '#6A1B9A', shape: 'box' },
+    invoke: { tag: 'SUB-PROCESS', color: '#283593', shape: 'box' },
+    log: { tag: 'NOTIFY / LOG', color: '#546E7A', shape: 'box' },
+    trycatch: { tag: 'ERROR HANDLING', color: '#8D6E63', shape: 'box' },
+    assign: { tag: 'PREPARE DATA', color: '#455A64', shape: 'box' },
+    step: { tag: 'STEP', color: '#37474F', shape: 'box' },
+};
+// Structural / plumbing display names that carry no business meaning.
+const TECH_DROP = new Set([
+    'Sequence', 'Do', 'Body', 'Catch', 'Target', 'TargetApp', 'TargetAnchorable',
+    'AssignOperation', 'Target appears', 'Target does not appear', 'TargetControl',
+]);
+function techCategory(n) {
+    const name = n.displayName;
+    const k = n.kind;
+    if (k === 'if' || k === 'switch')
+        return 'decision';
+    if (k === 'loop' || /\bfor each\b|\bwhile\b|\bdo while\b|\brepeat\b|\bretry scope\b/i.test(name))
+        return 'loop';
+    if (/try ?catch/i.test(name))
+        return 'trycatch';
+    if (k === 'invoke' || /\binvoke\b/i.test(name))
+        return 'invoke';
+    if (k === 'ui' || /\bclick\b|type into|get text|get attribute|check app state|use browser|go to url|navigate|select item|hover|send hotkey|set text|extract table|screenshot|attach browser|attach window/i.test(name))
+        return 'ui';
+    if (k === 'io' || /excel|workbook|read range|write range|write cell|read cell|data ?table|insert column|use excel|read csv|write csv|read text|write text|append line|read pdf|mail|outlook|send email|get email|word document|build data|filter data|for each excel/i.test(name))
+        return 'io';
+    if (k === 'log' || /message box|log message|log error|write line|report status|input dialog/i.test(name))
+        return 'log';
+    if (k === 'assign' || /\bassign\b|multiple assign|^set /i.test(name))
+        return 'assign';
+    return 'step';
+}
+/** Turn a raw activity display name into a clean, human-readable step label. */
+function cleanTechLabel(cat, nameIn) {
+    let s = nameIn.trim();
+    // "Sequence 'X'" / "Flowchart 'X'" -> X ; strip stray quotes.
+    s = s.replace(/^(Sequence|Flowchart|Do|Body)\s+'([^']+)'$/i, '$2').replace(/^'+|'+$/g, '').trim();
+    if (cat === 'invoke') {
+        const m = s.match(/([^\\/]+)\.xaml/i); // pull the workflow file's base name
+        if (m)
+            return `Invoke ${m[1].replace(/[_-]+/g, ' ')}`;
+        s = s.replace(/\s*-?\s*invoke workflow file$/i, '').trim();
+        return /^invoke/i.test(s) ? s : `Invoke ${s}`;
+    }
+    if (cat === 'assign') {
+        let t = s.replace(/^Multiple Assign.*/i, 'Prepare data').replace(/^Assign\s+/i, '').replace(/^to\s+/i, '').replace(/^'+|'+$/g, '').trim();
+        if (t === 'Prepare data')
+            return t;
+        // A code expression -> keep just the target identifier ("Set <var>").
+        if (/[()=]|\.\w/.test(t) || t.length > 42) {
+            const id = (t.match(/[A-Za-z_][A-Za-z0-9_]*/) || [])[0];
+            return id ? `Set ${id}` : 'Prepare data';
+        }
+        return `Assign ${t}`;
+    }
+    // UI / IO / loop / log: strip a trailing code expression in parentheses.
+    s = s.replace(/\s*\([^)]*$/, '').trim();
+    return s;
+}
+/**
+ * Reduce the parsed graph to a short, high-level list of technical steps for the
+ * ENTRY workflow: keep meaningful activities (UI, data, decisions, loops,
+ * sub-processes, notifications), collapse consecutive prepare-data assignments,
+ * drop structural plumbing, and cap the length so the diagram stays readable.
+ */
+function techSteps(graph, max = 18) {
+    const entry = (graph.entryPoints[0] || '').split(/[\\/]/).pop()?.toLowerCase();
+    const inEntry = (n) => {
+        const f = String(n.raw?.file ?? '').split(/[\\/]/).pop()?.toLowerCase();
+        return !entry || !f ? true : f === entry;
+    };
+    // Prefer the entry workflow's activities; fall back to all if the entry has none.
+    let pool = graph.nodes.filter(inEntry);
+    if (pool.filter((n) => techCategory(n) !== 'assign' && !TECH_DROP.has(n.displayName)).length < 3)
+        pool = graph.nodes;
+    const hasTryCatch = pool.some((n) => /try ?catch/i.test(n.displayName));
+    const raw = [];
+    for (const n of pool) {
+        if (TECH_DROP.has(n.displayName))
+            continue;
+        const cat = techCategory(n);
+        if (cat === 'trycatch')
+            continue; // shown as a single band, not a step
+        // Skip a bare "Sequence"/phase container with no descriptive name.
+        if (n.kind === 'sequence' && /^(sequence|do|body)$/i.test(n.displayName))
+            continue;
+        raw.push({ cat, label: cleanTechLabel(cat, n.displayName) });
+    }
+    // Collapse consecutive prepare-data assignments into one box.
+    const collapsed = [];
+    for (const s of raw) {
+        const prev = collapsed[collapsed.length - 1];
+        if (s.cat === 'assign' && prev && prev.cat === 'assign') {
+            const m = /^Prepare data \((\d+) steps\)$/.exec(prev.label);
+            prev.label = `Prepare data (${(m ? Number(m[1]) : 2)} steps)`;
+            continue;
+        }
+        collapsed.push({ ...s });
+    }
+    // Cap length, preferring to drop low-signal prepare-data/notify steps first.
+    let dropped = 0;
+    if (collapsed.length > max) {
+        const priority = (c) => (c === 'assign' || c === 'log' || c === 'step' ? 0 : 1);
+        // Keep all high-signal; trim excess low-signal from the middle.
+        const keep = [];
+        const low = collapsed.filter((s) => priority(s.cat) === 0);
+        const dropCount = Math.min(low.length, collapsed.length - max);
+        let toDrop = dropCount;
+        for (const s of collapsed) {
+            if (toDrop > 0 && priority(s.cat) === 0) {
+                toDrop--;
+                dropped++;
+                continue;
+            }
+            keep.push(s);
+        }
+        return { steps: keep.slice(0, max), dropped: dropped + Math.max(0, keep.length - max), hasTryCatch };
+    }
+    return { steps: collapsed, dropped, hasTryCatch };
+}
+/**
+ * Render a high-level technical flow of the entry workflow: Start → categorized
+ * steps (UI action, data I/O, decision, loop, sub-process, notify) → End, with
+ * an "error handling" band when the workflow is wrapped in Try/Catch. This is the
+ * readable alternative to a per-activity flowchart full of datatype noise.
+ */
+function renderTechnicalFlow(title, graph) {
+    const { steps, dropped, hasTryCatch } = techSteps(graph);
+    const W = 680;
+    const cx = W / 2;
+    const boxW = 470;
+    const decW = 380;
+    const termW = 150;
+    const termH = 42;
+    const gap = 20;
+    let y = 20;
     const parts = [];
-    let y = 0;
-    parts.push(`<text x="${w / 2}" y="${y + 15}" fill="#263238" font-size="15" font-weight="700" text-anchor="middle">${esc(title)} — REFramework states</text>`);
-    y += 30;
-    const bands = [];
-    PART_STATES.forEach((st, si) => {
-        const items = buckets[st.key];
-        const rows = Math.max(1, Math.ceil(items.length / perRow));
-        const bandTop = y;
-        // Colored strip header.
-        parts.push(`<rect x="${padX}" y="${y}" width="${innerW}" height="${stripH}" rx="6" fill="${st.color}"/>`);
-        parts.push(`<circle cx="${padX + 15}" cy="${y + stripH / 2}" r="4.5" fill="#FFFFFF" opacity="0.9"/>`);
-        parts.push(`<text x="${padX + 28}" y="${y + stripH / 2 + 4}" fill="#FFFFFF" font-size="12.5" font-weight="700">${esc(st.name)}</text>`);
-        y += stripH + 8;
-        // Step boxes (wrap perRow).
-        if (items.length) {
-            items.forEach((it, idx) => {
-                const r = Math.floor(idx / perRow);
-                const c = idx % perRow;
-                const bx = padX + c * (boxW + boxGap);
-                const by = y + r * (boxH + rowGap);
-                parts.push(`<rect x="${bx}" y="${by}" width="${boxW}" height="${boxH}" rx="6" fill="#ECEFF1" stroke="${st.color}" stroke-width="1"/>`);
-                parts.push(`<text x="${bx + boxW / 2}" y="${by + boxH / 2 + 4}" fill="#263238" font-size="10.5" text-anchor="middle">${esc(truncate(it, 40))}</text>`);
-            });
-            y += rows * boxH + (rows - 1) * rowGap;
+    const push = (s) => parts.push(s);
+    // Title.
+    push(`<text x="${cx}" y="${y}" fill="#263238" font-size="15" font-weight="700" text-anchor="middle">${esc(truncate(title, 46))} — high-level flow</text>`);
+    y += 22;
+    // Error-handling band.
+    if (hasTryCatch) {
+        push(`<rect x="${cx - 250}" y="${y}" width="500" height="24" rx="12" fill="#EFEBE9" stroke="#8D6E63" stroke-width="1"/>`);
+        push(`<text x="${cx}" y="${y + 16}" fill="#5D4037" font-size="11" font-weight="600" text-anchor="middle">Wrapped in Try / Catch — errors routed to the global handler</text>`);
+        y += 24 + gap;
+    }
+    // Start terminal.
+    const startY = y;
+    push(`<rect x="${cx - termW / 2}" y="${y}" width="${termW}" height="${termH}" rx="${termH / 2}" fill="#2E7D32"/>`);
+    push(`<text x="${cx}" y="${y + 27}" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">Start</text>`);
+    let prevBottom = y + termH;
+    y += termH + gap;
+    const laid = [];
+    steps.forEach((s, i) => {
+        const st = TECH_STYLE[s.cat];
+        const isDec = st.shape === 'decision';
+        const h = isDec ? 58 : 46;
+        const w = isDec ? decW : boxW;
+        // Connector from previous.
+        push(`<line x1="${cx}" y1="${prevBottom}" x2="${cx}" y2="${y - 2}" stroke="#607D8B" stroke-width="1.5" marker-end="url(#pfarrow)"/>`);
+        if (isDec) {
+            const hw = w / 2;
+            const hh = h / 2;
+            const midY = y + hh;
+            push(`<polygon points="${cx},${y} ${cx + hw},${midY} ${cx},${y + h} ${cx - hw},${midY}" fill="#FFF3E0" stroke="${st.color}" stroke-width="1.4"/>`);
+            push(`<text x="${cx - hw + 10}" y="${midY - 12}" fill="${st.color}" font-size="8.5" font-weight="700">${esc(st.tag)}</text>`);
+            push(wrapTspans(s.label, cx, midY - 2, Math.floor((w - 60) / 6), 12, 2, 11, '#3E2723', '600'));
         }
         else {
-            parts.push(`<text x="${padX + 4}" y="${y + 10}" fill="#90A4AE" font-size="10" font-style="italic">(no steps in this state)</text>`);
-            y += 14;
+            push(`<rect x="${cx - w / 2}" y="${y}" width="${w}" height="${h}" rx="8" fill="${st.color}"/>`);
+            push(`<rect x="${cx - w / 2}" y="${y}" width="6" height="${h}" rx="3" fill="rgba(255,255,255,.35)"/>`);
+            push(`<text x="${cx - w / 2 + 16}" y="${y + 17}" fill="rgba(255,255,255,.85)" font-size="8.5" font-weight="700">${esc(st.tag)}</text>`);
+            push(wrapTspans(s.label, cx + 6, y + (s.label.length > 46 ? 30 : 34), Math.floor((w - 40) / 6), 13, 2, 12.5, '#FFFFFF', '600'));
         }
-        bands.push({ top: bandTop, bottom: y });
-        if (si < PART_STATES.length - 1) {
-            parts.push(`<line x1="${w / 2}" y1="${y + 3}" x2="${w / 2}" y2="${y + bandGap - 3}" stroke="#607D8B" stroke-width="1.6" marker-end="url(#pfarrow)"/>`);
-        }
-        y += bandGap;
+        laid.push({ cy: y + h / 2, h });
+        prevBottom = y + h;
+        y += h + gap;
+        void i;
     });
-    // Loop arrow: Process → Get Transaction Data (right-hand channel).
-    const get = bands[1];
-    const proc = bands[2];
-    const rx = w - padX + 4;
-    parts.push(`<path d="M${w - padX - 2},${proc.top + stripH / 2} L${rx},${proc.top + stripH / 2} L${rx},${get.bottom - 6} L${w - padX - 2},${get.bottom - 6}" ` +
-        `fill="none" stroke="#90A4AE" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#pfarrow)"/>`);
-    return { svg: parts.join(''), height: y };
+    if (dropped > 0) {
+        push(`<text x="${cx}" y="${y + 4}" fill="#90A4AE" font-size="10" font-style="italic" text-anchor="middle">+ ${dropped} more detailed step(s) omitted for clarity</text>`);
+        y += 16;
+    }
+    // End terminal.
+    push(`<line x1="${cx}" y1="${prevBottom}" x2="${cx}" y2="${y - 2}" stroke="#607D8B" stroke-width="1.5" marker-end="url(#pfarrow)"/>`);
+    push(`<rect x="${cx - termW / 2}" y="${y}" width="${termW}" height="${termH}" rx="${termH / 2}" fill="#B00020"/>`);
+    push(`<text x="${cx}" y="${y + 27}" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">End</text>`);
+    y += termH + 16;
+    void startY;
+    return rasterize(svgDoc(W, y, parts.join('')), W, y);
 }
-/** One project's high-level flow, partitioned by REFramework state. */
-function renderPartitionedFlow(title, steps) {
-    const block = partitionedBlock(title, steps, PF_W);
+// ----------------------------------------------------------------------------
+// Dynamic state-machine diagram — built from the REAL parsed StateMachine
+// (actual states, per-state invoked workflows, and real transitions with their
+// names, guard conditions and targets). No canned template.
+// ----------------------------------------------------------------------------
+/** "GetTransactionData" -> "Get Transaction Data"; "InitAllSettings" -> "Init All Settings". */
+function humanizeStep(s) {
+    return s
+        .replace(/[_-]+/g, ' ')
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+/** Strip the surrounding VB brackets from a transition guard condition. */
+function cleanCondition(c) {
+    return (c || '').replace(/^\[|\]$/g, '').trim();
+}
+/**
+ * A transition is an exception/terminal branch (drawn in red) vs the happy path.
+ * Judged on the transition NAME only — guard conditions legitimately reference
+ * exception variables (e.g. "SystemException is Nothing") on the success path.
+ */
+function isExceptionTransition(name, _condition) {
+    return /exception|no data|failed|error|abort|retry/i.test(name);
+}
+/** Short unique code for each state, used on off-page connectors (e.g. GTD, PT, EP). */
+function stateCodes(states) {
+    const out = {};
+    const used = new Set();
+    for (const s of states) {
+        const words = s.name.split(/\s+/).filter(Boolean);
+        let code = (words.length > 1 ? words.map((w) => w[0]).join('') : s.name.slice(0, 3)).toUpperCase().slice(0, 4);
+        let i = 2;
+        while (used.has(code))
+            code = (code.slice(0, 3) + i++).toUpperCase();
+        used.add(code);
+        out[s.id] = code;
+    }
+    return out;
+}
+/**
+ * Order states for left-to-right columns: initial first, then follow the happy
+ * (non-exception) path, appending any remaining states with final states last —
+ * so a REFramework reads Initialization | Get Transaction | Process | End, but
+ * the order is derived from the real transitions, not hard-coded.
+ */
+function orderStates(sm) {
+    const byId = {};
+    for (const s of sm.states)
+        byId[s.id] = s;
+    const chain = [];
+    const seen = new Set();
+    let cur = byId[sm.initial] ?? sm.states[0];
+    while (cur && !seen.has(cur.id)) {
+        const node = cur;
+        chain.push(node);
+        seen.add(node.id);
+        const fwd = node.transitions.find((t) => !isExceptionTransition(t.name, t.condition) && !!byId[t.to] && !seen.has(t.to));
+        cur = fwd ? byId[fwd.to] : undefined;
+    }
+    const rest = sm.states.filter((s) => !seen.has(s.id));
+    rest.sort((a, b) => Number(a.isFinal) - Number(b.isFinal)); // finals last
+    return [...chain, ...rest];
+}
+/**
+ * SVG for the REAL state machine as a lane-per-state chart. Each lane shows the
+ * state's actual invoked workflows as process boxes, a START terminator on the
+ * initial state and an END terminator on the final state, and every real
+ * transition as a labelled exit to an off-page connector carrying the target
+ * state's code (exception/no-data branches in red). Returns the SVG + height.
+ */
+function stateMachineBlock(title, sm, w) {
+    const ordered = orderStates(sm);
+    const codes = stateCodes(ordered);
+    const N = Math.max(1, ordered.length);
+    const pad = 8;
+    const titleH = 26;
+    const headerH = 30;
+    const colW = (w - 2 * pad) / N;
+    const bodyTop = titleH + headerH + 20;
+    const bw = colW * 0.6;
+    const boxGap = 20;
+    const rowGap = 40; // per outgoing-transition row
+    const palette = ['#2E7D32', '#1565C0', '#6A1B9A', '#B00020', '#00695C', '#4527A0', '#37474F'];
+    const parts = [];
+    // Title band + per-state headers.
+    parts.push(`<rect x="${pad}" y="0" width="${w - 2 * pad}" height="${titleH}" rx="4" fill="#263238"/>`);
+    parts.push(`<text x="${w / 2}" y="${titleH / 2 + 5}" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">${esc(title)} — state machine (from code)</text>`);
+    ordered.forEach((s, i) => {
+        const x = pad + i * colW;
+        const color = palette[i % palette.length];
+        parts.push(`<rect x="${x + 2}" y="${titleH + 3}" width="${colW - 4}" height="${headerH - 4}" rx="4" fill="${color}"/>`);
+        parts.push(wrapTspans(`${s.name}`, x + colW / 2, titleH + (s.name.length > 18 ? headerH / 2 : headerH / 2 + 4), Math.floor((colW - 12) / 6), 11, 2, 10.5, '#fff', '700'));
+    });
+    const drawConn = (px, py, code, color) => {
+        parts.push(`<ellipse cx="${px}" cy="${py}" rx="18" ry="14" fill="${color}"/>`);
+        parts.push(`<text x="${px}" y="${py + 4}" fill="#fff" font-size="10.5" font-weight="700" text-anchor="middle">${esc(code)}</text>`);
+    };
+    let maxBottom = bodyTop;
+    ordered.forEach((s, i) => {
+        const laneX = pad + i * colW;
+        const cx = laneX + colW * 0.42;
+        const color = palette[i % palette.length];
+        let y = bodyTop;
+        const spineTop = y;
+        // Top marker: START on the initial state, else this state's own entry connector.
+        if (s.id === sm.initial) {
+            parts.push(`<rect x="${cx - 44}" y="${y}" width="88" height="30" rx="15" fill="${color}"/>`);
+            parts.push(`<text x="${cx}" y="${y + 20}" fill="#fff" font-size="12.5" font-weight="700" text-anchor="middle">Start</text>`);
+        }
+        else {
+            drawConn(cx, y + 15, codes[s.id], '#4A5B6B');
+        }
+        let prevBottom = y + 30;
+        y += 30 + boxGap;
+        // Real invoked-workflow boxes.
+        const steps = s.steps.length ? s.steps : ['(no invoked workflows)'];
+        steps.slice(0, 8).forEach((st) => {
+            const h = 44;
+            parts.push(`<line x1="${cx}" y1="${prevBottom}" x2="${cx}" y2="${y - 2}" stroke="#607D8B" stroke-width="1.4" marker-end="url(#pfarrow)"/>`);
+            parts.push(`<rect x="${cx - bw / 2}" y="${y}" width="${bw}" height="${h}" rx="6" fill="#F4F6F8" stroke="${color}" stroke-width="1.1"/>`);
+            parts.push(wrapTspans(humanizeStep(st), cx, y + h / 2 - 3, Math.floor((bw - 12) / 5.6), 12, 3, 10, '#12212E', '500'));
+            prevBottom = y + h;
+            y += h + boxGap;
+        });
+        // Outgoing transitions: each real transition drawn as a labelled exit to an
+        // off-page connector carrying the target state's code. Labels are left-
+        // aligned across the column; the connector sits at the far right edge.
+        if (s.transitions.length) {
+            const labelX = laneX + 12;
+            const cpx = laneX + colW - 22;
+            const maxChars = Math.max(10, Math.floor((cpx - 22 - labelX) / 5.3));
+            s.transitions.forEach((t) => {
+                const rowY = y + 8;
+                const exc = isExceptionTransition(t.name, t.condition);
+                const stroke = exc ? '#B00020' : color;
+                parts.push(`<line x1="${cx}" y1="${prevBottom}" x2="${cx}" y2="${rowY}" stroke="#607D8B" stroke-width="1.3"/>`);
+                parts.push(`<text x="${labelX}" y="${rowY - 6}" fill="${exc ? '#B00020' : '#33475B'}" font-size="9.3" font-weight="700">${esc(truncate(t.name, maxChars))}</text>`);
+                parts.push(`<line x1="${cx}" y1="${rowY}" x2="${cpx - 18}" y2="${rowY}" stroke="${stroke}" stroke-width="1.4" marker-end="url(#pfarrow)"/>`);
+                const cond = cleanCondition(t.condition);
+                if (cond)
+                    parts.push(`<text x="${labelX}" y="${rowY + 12}" fill="#8493A0" font-size="8">${esc(truncate(cond, maxChars + 4))}</text>`);
+                drawConn(cpx, rowY, codes[t.to] ?? '?', exc ? '#B00020' : '#4A5B6B');
+                prevBottom = rowY + 12;
+                y = rowY + rowGap;
+            });
+        }
+        // END terminator on a final state.
+        if (s.isFinal) {
+            parts.push(`<line x1="${cx}" y1="${prevBottom}" x2="${cx}" y2="${y - 2}" stroke="#607D8B" stroke-width="1.4" marker-end="url(#pfarrow)"/>`);
+            parts.push(`<rect x="${cx - 44}" y="${y}" width="88" height="30" rx="15" fill="#B00020"/>`);
+            parts.push(`<text x="${cx}" y="${y + 20}" fill="#fff" font-size="12.5" font-weight="700" text-anchor="middle">END</text>`);
+            y += 30 + boxGap;
+        }
+        void spineTop;
+        maxBottom = Math.max(maxBottom, y);
+    });
+    // Divider lines + a code legend so the connectors are self-explanatory.
+    const legendY = maxBottom + 4;
+    const legend = ordered.map((s) => `${codes[s.id]} = ${s.name}`).join('    ·    ');
+    parts.push(`<text x="${w / 2}" y="${legendY + 8}" fill="#78909C" font-size="9.5" text-anchor="middle">${esc(legend)}</text>`);
+    const H = legendY + 18;
+    for (let i = 1; i < N; i++) {
+        const x = pad + i * colW;
+        parts.push(`<line x1="${x}" y1="${titleH + 2}" x2="${x}" y2="${maxBottom - 2}" stroke="#CFD8DC" stroke-width="1"/>`);
+    }
+    return { svg: parts.join(''), height: H };
+}
+/** Render the real parsed state machine of a project as a diagram. */
+function renderStateMachine(title, sm) {
+    const block = stateMachineBlock(title, sm, PF_W);
     const h = block.height + 20;
     return rasterize(svgDoc(PF_W, h, `<g transform="translate(0,12)">${block.svg}</g>`), PF_W, h);
 }
-/** Two+ projects (dispatcher/performer): a partitioned flow per project, stacked. */
+/**
+ * SVG for one project's REFramework diagram as a faithful 4-lane state chart
+ * (Init | Get Transaction Data | Process Transaction | End Process). Each lane is
+ * a top-to-bottom flow with Start/END terminators, process rectangles, decision
+ * diamonds (YES/NO), off-page connectors (A = to End on exception / no data,
+ * B = back to Get Transaction), exception tags (SE#/BE#) and an init retry loop —
+ * mirroring the canonical REFramework template. Returns the SVG + total height.
+ */
+function stateSwimlaneBlock(title, steps, w) {
+    const lanes = buildLaneNodes(bucketSteps(steps));
+    const pad = 8;
+    const titleH = 26;
+    const headerH = 30;
+    const colW = (w - 2 * pad) / 4;
+    const bodyTop = titleH + headerH + 22;
+    const gapProc = 26; // gap after a process/terminal
+    const gapDec = 40; // extra gap after a decision (room for branch label)
+    const nodeH = (n) => (n.kind === 'terminal' ? 34 : n.kind === 'connector' ? 34 : n.kind === 'decision' ? 56 : 48);
+    const parts = [];
+    // ---- Title band + lane headers ----
+    parts.push(`<rect x="${pad}" y="0" width="${w - 2 * pad}" height="${titleH}" rx="4" fill="#263238"/>`);
+    parts.push(`<text x="${w / 2}" y="${titleH / 2 + 5}" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">${esc(title)} — REFramework state chart</text>`);
+    SWIM_STATES.forEach((c, i) => {
+        const x = pad + i * colW;
+        parts.push(`<rect x="${x + 2}" y="${titleH + 3}" width="${colW - 4}" height="${headerH - 4}" rx="4" fill="${c.color}"/>`);
+        parts.push(`<text x="${x + colW / 2}" y="${titleH + headerH / 2 + 5}" fill="#fff" font-size="11.5" font-weight="700" text-anchor="middle">${esc(c.name)}</text>`);
+    });
+    // ---- Lay out every lane's spine, remember geometry for inter-lane wiring ----
+    const KEYS = ['init', 'get', 'process', 'end'];
+    const geom = [];
+    let maxBottom = bodyTop;
+    KEYS.forEach((key, i) => {
+        const laneX = pad + i * colW;
+        const cx = laneX + colW * 0.44;
+        const connX = laneX + colW * 0.84;
+        const bw = colW * 0.62;
+        const dhw = colW * 0.32;
+        const nodes = lanes[key];
+        const laid = [];
+        let y = bodyTop;
+        nodes.forEach((n, k) => {
+            const h = nodeH(n);
+            laid.push({ n, cy: y + h / 2, h });
+            const g = n.kind === 'decision' ? gapDec : gapProc;
+            y += h + (k < nodes.length - 1 ? g : 0);
+        });
+        maxBottom = Math.max(maxBottom, y);
+        const entryIdx = nodes.findIndex((n) => n.kind === 'decision' || n.kind === 'process');
+        const color = SWIM_STATES[i].color;
+        geom.push({ key, cx, laneX, connX, bw, dhw, laid, entryIdx });
+        // stash lane color on geom via closure below
+        geom[geom.length - 1].color = color;
+    });
+    const H = maxBottom + 10;
+    // ---- Lane divider lines ----
+    for (let i = 1; i < 4; i++) {
+        const x = pad + i * colW;
+        parts.push(`<line x1="${x}" y1="${titleH + 2}" x2="${x}" y2="${H - 4}" stroke="#CFD8DC" stroke-width="1"/>`);
+    }
+    const drawConnector = (px, py, letter) => {
+        parts.push(`<ellipse cx="${px}" cy="${py}" rx="17" ry="14" fill="#4A5B6B"/>`);
+        parts.push(`<text x="${px}" y="${py + 5}" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">${esc(letter)}</text>`);
+    };
+    // ---- Inter-lane flow arrows (Init → Get, Get → Process), routed through the gutter ----
+    const routeToNext = (from, to) => {
+        const src = from.laid[from.laid.length - 1];
+        const tgt = to.laid[to.entryIdx];
+        const sx = src.n.kind === 'decision' ? from.cx : from.cx;
+        const sy = src.cy + src.h / 2;
+        const boundary = to.laneX; // divider between the two lanes
+        const tgtLeft = to.cx - (tgt.n.kind === 'decision' ? to.dhw : to.bw / 2);
+        const midY = tgt.cy;
+        parts.push(`<path d="M${sx},${sy} V${sy + 12} H${boundary - 0} V${midY} H${tgtLeft - 2}" fill="none" stroke="#546E7A" stroke-width="1.5" marker-end="url(#pfarrow)"/>`);
+    };
+    // ---- Draw each lane ----
+    geom.forEach((g) => {
+        const color = g.color;
+        // spine connectors between consecutive nodes
+        for (let k = 0; k < g.laid.length - 1; k++) {
+            const a = g.laid[k];
+            const bnode = g.laid[k + 1];
+            const label = a.n.kind === 'decision' ? a.n.downLabel : undefined;
+            parts.push(`<line x1="${g.cx}" y1="${a.cy + a.h / 2}" x2="${g.cx}" y2="${bnode.cy - bnode.h / 2 - 2}" stroke="#607D8B" stroke-width="1.4" marker-end="url(#pfarrow)"/>`);
+            if (label)
+                parts.push(`<text x="${g.cx + 7}" y="${a.cy + a.h / 2 + 13}" fill="#37474F" font-size="9.5" font-weight="600">${esc(label)}</text>`);
+        }
+        g.laid.forEach((it, idx) => {
+            const { n, cy, h } = it;
+            if (n.kind === 'terminal') {
+                parts.push(`<rect x="${g.cx - 46}" y="${cy - h / 2}" width="92" height="${h}" rx="${h / 2}" fill="${color}"/>`);
+                parts.push(`<text x="${g.cx}" y="${cy + 5}" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">${esc(n.label)}</text>`);
+            }
+            else if (n.kind === 'connector') {
+                drawConnector(g.cx, cy, n.label);
+            }
+            else if (n.kind === 'decision') {
+                const hw = g.dhw;
+                const hh = h / 2;
+                parts.push(`<polygon points="${g.cx},${cy - hh} ${g.cx + hw},${cy} ${g.cx},${cy + hh} ${g.cx - hw},${cy}" fill="#DCE9F9" stroke="${color}" stroke-width="1.3"/>`);
+                parts.push(wrapTspans(n.label, g.cx, cy - 3, Math.floor((hw * 2 - 8) / 5.2), 11, 3, 9.2, '#12212E', '600'));
+                // side branch → off-page connector
+                if (n.sideTo) {
+                    const cxTo = g.connX;
+                    parts.push(`<line x1="${g.cx + hw}" y1="${cy}" x2="${cxTo - 17}" y2="${cy}" stroke="#546E7A" stroke-width="1.4" marker-end="url(#pfarrow)"/>`);
+                    if (n.sideLabel)
+                        parts.push(`<text x="${g.cx + hw + 8}" y="${cy - 5}" fill="#37474F" font-size="9.5" font-weight="700">${esc(n.sideLabel)}</text>`);
+                    drawConnector(cxTo, cy, n.sideTo);
+                    if (n.exception)
+                        parts.push(`<text x="${cxTo}" y="${cy + 28}" fill="#B00020" font-size="10" font-weight="700" text-anchor="middle">${esc(n.exception)}</text>`);
+                }
+                // retry dashed loop back to the previous process node
+                if (n.retry && idx > 0) {
+                    const prev = g.laid[idx - 1];
+                    const lx = g.cx - hw - 8;
+                    parts.push(`<path d="M${g.cx - hw},${cy} H${lx} V${prev.cy} H${g.cx - g.bw / 2 - 2}" fill="none" stroke="#90A4AE" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#pfarrow)"/>`);
+                    parts.push(`<text x="${lx - 2}" y="${(cy + prev.cy) / 2}" fill="#607D8B" font-size="9" font-weight="600" text-anchor="end">Retry</text>`);
+                }
+            }
+            else {
+                // process
+                parts.push(`<rect x="${g.cx - g.bw / 2}" y="${cy - h / 2}" width="${g.bw}" height="${h}" rx="6" fill="#F4F6F8" stroke="${color}" stroke-width="1.1"/>`);
+                parts.push(wrapTspans(n.label, g.cx, cy - 4, Math.floor((g.bw - 12) / 5.6), 12, 3, 10, '#12212E', '500'));
+            }
+        });
+    });
+    // Inter-lane arrows drawn last so they sit above dividers.
+    routeToNext(geom[0], geom[1]);
+    routeToNext(geom[1], geom[2]);
+    return { svg: parts.join(''), height: H };
+}
+/**
+ * One project's high-level flow as a centered top-to-bottom linear block (Start →
+ * numbered steps → End), sized to width `w`. Used for non-REFramework projects in
+ * a multi-project solution so a Flowchart dispatcher isn't drawn as a state machine.
+ */
+function linearFlowBlock(title, stepsIn, w) {
+    const steps = stepsIn.map((s) => s.trim()).filter(Boolean).slice(0, 14);
+    const cx = w / 2;
+    const boxW = Math.min(460, w - 80);
+    const termW = 150;
+    const termH = 40;
+    const stepH = 52;
+    const gap = 22;
+    const titleH = 30;
+    const palette = ['#1565C0', '#00838F', '#6A1B9A', '#283593', '#2E7D32', '#00695C', '#455A64', '#4527A0'];
+    const parts = [];
+    parts.push(`<text x="${cx}" y="18" fill="#263238" font-size="14" font-weight="700" text-anchor="middle">${esc(truncate(title, 46))} — process flow</text>`);
+    const heights = [termH, ...steps.map(() => stepH), termH];
+    const centers = [];
+    let y = titleH;
+    for (const h of heights) {
+        centers.push(y + h / 2);
+        y += h + gap;
+    }
+    const H = y - gap + 6;
+    for (let i = 0; i < centers.length - 1; i++) {
+        parts.push(`<line x1="${cx}" y1="${centers[i] + heights[i] / 2}" x2="${cx}" y2="${centers[i + 1] - heights[i + 1] / 2 - 2}" stroke="#37474F" stroke-width="1.6" marker-end="url(#pfarrow)"/>`);
+    }
+    parts.push(`<rect x="${cx - termW / 2}" y="${centers[0] - termH / 2}" width="${termW}" height="${termH}" rx="${termH / 2}" fill="#2E7D32"/>`, `<text x="${cx}" y="${centers[0] + 5}" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">Start</text>`);
+    steps.forEach((s, i) => {
+        const cy = centers[i + 1];
+        const fill = palette[i % palette.length];
+        const x = cx - boxW / 2;
+        parts.push(`<rect x="${x}" y="${cy - stepH / 2}" width="${boxW}" height="${stepH}" rx="8" fill="${fill}"/>`);
+        parts.push(`<circle cx="${x + 24}" cy="${cy}" r="14" fill="#FFFFFF" opacity="0.9"/>`, `<text x="${x + 24}" y="${cy + 5}" fill="${fill}" font-size="13" font-weight="700" text-anchor="middle">${i + 1}</text>`);
+        parts.push(wrapTspans(s, x + 24 + (boxW - 48) / 2 + 6, cy - (s.length > 40 ? 4 : -4), Math.floor((boxW - 66) / 6.2), 15, 2, 12.5, '#FFFFFF', '600'));
+    });
+    const eCy = centers[centers.length - 1];
+    parts.push(`<rect x="${cx - termW / 2}" y="${eCy - termH / 2}" width="${termW}" height="${termH}" rx="${termH / 2}" fill="#B00020"/>`, `<text x="${cx}" y="${eCy + 5}" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">End</text>`);
+    return { svg: parts.join(''), height: H };
+}
+/** One REFramework project's high-level flow as a 4-column state swimlane. */
+function renderPartitionedFlow(title, steps) {
+    const block = stateSwimlaneBlock(title, steps, PF_W);
+    const h = block.height + 20;
+    return rasterize(svgDoc(PF_W, h, `<g transform="translate(0,12)">${block.svg}</g>`), PF_W, h);
+}
+/** Rasterize a single linear high-level block at the partitioned-flow width. */
+function rasterizeLinear(title, steps) {
+    const block = linearFlowBlock(title, steps, PF_W);
+    const h = block.height + 20;
+    return rasterize(svgDoc(PF_W, h, `<g transform="translate(0,12)">${block.svg}</g>`), PF_W, h);
+}
+/**
+ * Two+ projects (dispatcher/performer): one high-level diagram per project,
+ * stacked. REFramework projects render as a 4-column state swimlane; plain
+ * Flowchart/Sequence projects render as a linear high-level flow.
+ */
 function renderPartitionedFlows(flows) {
-    const usable = flows.filter((f) => f.steps.some((s) => s && s.trim()));
-    if (usable.length <= 1)
-        return renderPartitionedFlow(usable[0]?.project ?? '', usable[0]?.steps ?? []);
-    const gap = 30;
+    const usable = flows.filter((f) => (f.stateMachine && f.stateMachine.states?.length) || f.steps.some((s) => s && s.trim()));
+    // One project's block: a code-derived state machine if we parsed one, else a
+    // REFramework state swimlane for a REFramework project, else a linear flow.
+    const blockFor = (f) => f.stateMachine && f.stateMachine.states?.length
+        ? stateMachineBlock(f.project, f.stateMachine, PF_W)
+        : f.reframework === false
+            ? linearFlowBlock(f.project, f.steps, PF_W)
+            : stateSwimlaneBlock(f.project, f.steps, PF_W);
+    if (usable.length <= 1) {
+        const f = usable[0];
+        if (!f)
+            return renderPartitionedFlow('', []);
+        const b = blockFor(f);
+        const h = b.height + 20;
+        return rasterize(svgDoc(PF_W, h, `<g transform="translate(0,12)">${b.svg}</g>`), PF_W, h);
+    }
+    const gap = 34;
     let y = 12;
     let body = '';
     usable.forEach((f, i) => {
-        const b = partitionedBlock(f.project, f.steps, PF_W);
+        const b = blockFor(f);
         body += `<g transform="translate(0,${y})">${b.svg}</g>`;
         y += b.height + gap;
         if (i < usable.length - 1)

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { nonce as makeNonce, esc as escapeHtml, headHtml } from './ui/theme';
 
 export interface PreviewData {
   projectName: string;
@@ -14,48 +15,39 @@ export interface PreviewData {
  */
 export function renderWebview(webview: vscode.Webview, data: PreviewData): string {
   const nonce = makeNonce();
-  const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
   const engine = data.usedLlm ? 'UiPath LLM Gateway' : 'Deterministic (no LLM)';
+  const extraCss = /* css */ `
+  header { position: sticky; top: 0; z-index: 10; background: rgba(11,14,20,.86); backdrop-filter: blur(8px);
+    padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line); }
+  .badges { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s3); }
+  .tabs { display: inline-flex; gap: var(--s1); background: var(--elev); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 3px; }
+  .tabs button { min-height: 32px; padding: 5px 16px; background: transparent; border: none; color: var(--ink-dim); border-radius: 6px; }
+  .tabs button.active { background: var(--blue); color: var(--blue-ink); }
+  .exports { margin-top: var(--s3); }
+  .body { padding: var(--s4) var(--s5) var(--s7); }
+  .doc { display: none; } .doc.active { display: block; }`;
 
-  return /* html */ `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta http-equiv="Content-Security-Policy" content="${csp}" />
-<style>
-  body { font-family: var(--vscode-font-family); padding: 0 16px 40px; color: var(--vscode-foreground); }
-  header { position: sticky; top: 0; background: var(--vscode-editor-background); padding: 12px 0; border-bottom: 1px solid var(--vscode-panel-border); }
-  .badges span { display: inline-block; font-size: 12px; padding: 2px 8px; margin-right: 6px; border-radius: 10px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
-  .tabs { margin: 10px 0; }
-  button { font-family: inherit; cursor: pointer; border: none; padding: 6px 12px; margin-right: 6px; border-radius: 4px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-  button.primary, .exports button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-  button.active { outline: 2px solid var(--vscode-focusBorder); }
-  .exports { margin: 8px 0 4px; }
-  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
-  th, td { border: 1px solid var(--vscode-panel-border); padding: 6px 8px; text-align: left; vertical-align: top; }
-  th { background: var(--vscode-editorWidget-background); }
-  h1 { font-size: 22px; } h2 { font-size: 18px; margin-top: 24px; } h3 { font-size: 15px; }
-  .doc { display: none; } .doc.active { display: block; }
-</style>
-</head>
+  return /* html */ `${headHtml(nonce, 'InstaDocs — Preview', extraCss)}
 <body>
 <header>
+  <div class="brand"><div class="logo">Ui</div> InstaDocs <span class="tag">· ${escapeHtml(data.projectName)}</span></div>
   <div class="badges">
-    <span>Project: ${escapeHtml(data.projectName)}</span>
-    <span>Platform: ${escapeHtml(data.platform)}</span>
-    <span>Analysis: ${escapeHtml(engine)}</span>
+    <span class="pill"><span class="dot"></span>${escapeHtml(data.platform)}</span>
+    <span class="pill ok"><span class="dot"></span>${escapeHtml(engine)}</span>
   </div>
-  <div class="tabs">
-    <button id="tab-sdd" class="primary active" onclick="showDoc('sdd')">SDD</button>
-    <button id="tab-tc" onclick="showDoc('tc')">Test Cases</button>
+  <div class="tabs" role="tablist">
+    <button id="tab-sdd" class="active">SDD</button>
+    <button id="tab-tc">Test Cases</button>
   </div>
   <div class="exports">
-    <button class="primary" onclick="doExport()">Export SDD (Word) + Test Cases (Excel)</button>
+    <button id="btn-export" class="primary">⬇ Export SDD (Word) + Test Cases (Excel)</button>
   </div>
 </header>
 
-<div id="doc-sdd" class="doc active"></div>
-<div id="doc-tc" class="doc"></div>
+<div class="body">
+  <div id="doc-sdd" class="doc active"></div>
+  <div id="doc-tc" class="doc"></div>
+</div>
 
 <script nonce="${nonce}">
   const vscode = acquireVsCodeApi();
@@ -65,6 +57,12 @@ export function renderWebview(webview: vscode.Webview, data: PreviewData): strin
   };
   document.getElementById('doc-sdd').innerHTML = mdToHtml(sources.sdd);
   document.getElementById('doc-tc').innerHTML = mdToHtml(sources.tc);
+
+  // Wire events here — a strict webview CSP (nonce script-src, no unsafe-inline)
+  // blocks inline onclick= handlers, so buttons must be bound programmatically.
+  document.getElementById('tab-sdd').addEventListener('click', function () { showDoc('sdd'); });
+  document.getElementById('tab-tc').addEventListener('click', function () { showDoc('tc'); });
+  document.getElementById('btn-export').addEventListener('click', doExport);
 
   function showDoc(which) {
     for (const id of ['sdd','tc']) {
@@ -112,15 +110,4 @@ export function renderWebview(webview: vscode.Webview, data: PreviewData): strin
 </script>
 </body>
 </html>`;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function makeNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let out = '';
-  for (let i = 0; i < 24; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
 }

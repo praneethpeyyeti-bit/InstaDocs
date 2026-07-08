@@ -15,7 +15,7 @@ export interface InstadocsGatewayConfig {
     /** Bearer token / PAT — overrides the uip session token when set. */
     token?: string;
 }
-export declare const DEFAULT_GATEWAY_MODEL = "anthropic.claude-opus-4-8";
+export declare const DEFAULT_GATEWAY_MODEL = "anthropic.claude-sonnet-4-5-20250929-v1:0";
 /** Find + parse `instadocs.config.json` (project dir walking up, then home). */
 export declare function loadInstadocsConfig(startDir?: string): {
     config: InstadocsGatewayConfig;

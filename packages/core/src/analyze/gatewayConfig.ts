@@ -35,7 +35,10 @@ export interface InstadocsGatewayConfig {
   token?: string;
 }
 
-export const DEFAULT_GATEWAY_MODEL = 'anthropic.claude-opus-4-8';
+// Balanced default: Sonnet 4.5 is markedly faster than Opus 4.8 for the large
+// SDD/ADD generation while keeping high quality. Users can pick Opus (best) or
+// Haiku (fastest) via config/settings/panel.
+export const DEFAULT_GATEWAY_MODEL = 'anthropic.claude-sonnet-4-5-20250929-v1:0';
 const CONFIG_NAME = 'instadocs.config.json';
 
 /** Find + parse `instadocs.config.json` (project dir walking up, then home). */

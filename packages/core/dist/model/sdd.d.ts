@@ -122,12 +122,18 @@ export declare const SddModelSchema: z.ZodObject<{
     projectFlows: z.ZodDefault<z.ZodArray<z.ZodObject<{
         project: z.ZodString;
         steps: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+        reframework: z.ZodOptional<z.ZodBoolean>;
+        stateMachine: z.ZodOptional<z.ZodAny>;
     }, "strip", z.ZodTypeAny, {
         steps: string[];
         project: string;
+        reframework?: boolean | undefined;
+        stateMachine?: any;
     }, {
         project: string;
         steps?: string[] | undefined;
+        reframework?: boolean | undefined;
+        stateMachine?: any;
     }>, "many">>;
     revisions: z.ZodDefault<z.ZodArray<z.ZodObject<{
         rev: z.ZodString;
@@ -420,6 +426,8 @@ export declare const SddModelSchema: z.ZodObject<{
     projectFlows: {
         steps: string[];
         project: string;
+        reframework?: boolean | undefined;
+        stateMachine?: any;
     }[];
     revisions: {
         summary: string;
@@ -546,6 +554,8 @@ export declare const SddModelSchema: z.ZodObject<{
     projectFlows?: {
         project: string;
         steps?: string[] | undefined;
+        reframework?: boolean | undefined;
+        stateMachine?: any;
     }[] | undefined;
     revisions?: {
         summary: string;

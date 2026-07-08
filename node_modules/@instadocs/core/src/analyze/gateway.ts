@@ -37,7 +37,7 @@ export async function chat(
   messages: ChatMessage[]
 ): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 240_000);
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 300_000);
   try {
     const res = await fetch(config.baseUrl, {
       method: 'POST',

@@ -3,7 +3,7 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { SddModel } from '../model/sdd';
 import { ProcessGraph } from '../model/ir';
-import { renderProcessFlow, renderReframeworkStates, renderArchitecture, renderHighLevelFlow, renderPartitionedFlow, renderPartitionedFlows, hasHighLevelSteps, isReframework, ArchSystem } from './flowchart';
+import { renderArchitecture, renderEntryDiagram, renderPartitionedFlows, hasHighLevelSteps, ArchSystem } from './flowchart';
 import { resolveAsset } from './assets';
 
 const FLOWCHART_MARKER = 'INSTADOCS_FLOWCHART_MAIN';
@@ -60,18 +60,10 @@ export function fillSddDocx(
     const steps = hasHighLevelSteps(model.highLevelSteps)
       ? model.highLevelSteps
       : solutionFlows[0]?.steps ?? [];
-    let single;
-    if (isReframework(graph) || graph.layout === 'statemachine') {
-      // REFramework -> partition the real high-level steps by state; if none
-      // were derived, fall back to the canonical 4-state machine.
-      single = steps.length ? renderPartitionedFlow(model.projectName, steps) : renderReframeworkStates();
-    } else if (graph.layout === 'flowchart') {
-      single = renderProcessFlow(graph); // branch/decision-aware structured flow
-    } else if (steps.length) {
-      single = renderHighLevelFlow(model.projectName, steps); // Sequence -> linear
-    } else {
-      single = renderProcessFlow(graph);
-    }
+    // One centralized decision (renderEntryDiagram): state machine -> code-derived
+    // state chart; REFramework -> state swimlane; Flowchart/Sequence -> high-level
+    // technical flow. No per-project tuning.
+    const single = renderEntryDiagram(model.projectName, graph, steps);
     embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', single, 9001);
   }
   // The per-process high-level flow section is not required (single or multi).

@@ -1,4 +1,4 @@
-import { ProcessGraph } from '../model/ir';
+import { ProcessGraph, StateMachineIR } from '../model/ir';
 import { AgentSpec } from '../model/agent';
 /**
  * Render the process as a colored flowchart image (PNG) straight from the
@@ -17,6 +17,17 @@ export interface FlowchartImage {
 }
 /** Convert a technical activity name to a business-readable label. */
 export declare function businessLabel(text: string): string;
+/**
+ * THE single decision point for a project's process-design diagram. Both the SDD
+ * exporter and any test call this, so a project always renders the same way with
+ * no per-project tuning:
+ *   1. real parsed StateMachine  -> code-derived state chart
+ *   2. REFramework (by layout/keyword) -> state swimlane from high-level steps
+ *   3. everything else (Flowchart/Sequence) -> high-level technical flow
+ * `steps` are the project's high-level business steps (LLM or derived); only the
+ * REFramework-without-a-parsed-machine branch needs them.
+ */
+export declare function renderEntryDiagram(projectName: string, graph: ProcessGraph, steps?: string[]): FlowchartImage;
 /** True when the project is built on the UiPath REFramework (state machine). */
 export declare function isReframework(graph: ProcessGraph): boolean;
 /**
@@ -56,10 +67,25 @@ export declare function hasHighLevelSteps(steps: string[] | undefined): boolean;
  * End). Deliberately concise — one box per high-level step, labels wrap.
  */
 export declare function renderHighLevelFlow(title: string, stepsIn: string[]): FlowchartImage;
-/** One project's high-level flow, partitioned by REFramework state. */
+/**
+ * Render a high-level technical flow of the entry workflow: Start → categorized
+ * steps (UI action, data I/O, decision, loop, sub-process, notify) → End, with
+ * an "error handling" band when the workflow is wrapped in Try/Catch. This is the
+ * readable alternative to a per-activity flowchart full of datatype noise.
+ */
+export declare function renderTechnicalFlow(title: string, graph: ProcessGraph): FlowchartImage;
+/** Render the real parsed state machine of a project as a diagram. */
+export declare function renderStateMachine(title: string, sm: StateMachineIR): FlowchartImage;
+/** One REFramework project's high-level flow as a 4-column state swimlane. */
 export declare function renderPartitionedFlow(title: string, steps: string[]): FlowchartImage;
-/** Two+ projects (dispatcher/performer): a partitioned flow per project, stacked. */
+/**
+ * Two+ projects (dispatcher/performer): one high-level diagram per project,
+ * stacked. REFramework projects render as a 4-column state swimlane; plain
+ * Flowchart/Sequence projects render as a linear high-level flow.
+ */
 export declare function renderPartitionedFlows(flows: {
     project: string;
     steps: string[];
+    reframework?: boolean;
+    stateMachine?: StateMachineIR;
 }[]): FlowchartImage;

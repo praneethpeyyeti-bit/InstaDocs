@@ -15,6 +15,8 @@ import {
   InstadocsGatewayConfig,
 } from '@instadocs/core';
 import { renderWebview } from './webview';
+import { openGeneratePanel } from './panel';
+import { openWelcome, maybeShowWelcomeOnStartup } from './welcome';
 
 const SECRET_TOKEN_KEY = 'instadocs.gateway.token';
 
@@ -43,8 +45,17 @@ export function activate(context: vscode.ExtensionContext): void {
       await generate(context, { location: url, branch: branch || undefined });
     }),
     // Guided setup: write the Gateway settings without touching a file or the UI.
-    vscode.commands.registerCommand('instadocs.setupGateway', () => setupGateway(context))
+    vscode.commands.registerCommand('instadocs.setupGateway', () => setupGateway(context)),
+    // Main UI: a single panel for source + config + generate + saved path.
+    vscode.commands.registerCommand('instadocs.openPanel', (uri?: vscode.Uri) =>
+      openGeneratePanel(context, uri?.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath)
+    ),
+    // Branded welcome / get-started page.
+    vscode.commands.registerCommand('instadocs.welcome', () => openWelcome(context))
   );
+
+  // Show the welcome page on startup (until the user turns it off).
+  maybeShowWelcomeOnStartup(context);
 }
 
 /** Guided wizard that writes the InstaDocs Gateway settings (org / tenant / host / model). */
@@ -96,10 +107,10 @@ async function setupGateway(context: vscode.ExtensionContext): Promise<void> {
 
   // 5. Model.
   const KNOWN_MODELS = [
-    'anthropic.claude-opus-4-8',
-    'anthropic.claude-opus-4-7',
     'anthropic.claude-sonnet-4-5-20250929-v1:0',
     'anthropic.claude-haiku-4-5-20251001-v1:0',
+    'anthropic.claude-opus-4-8',
+    'anthropic.claude-opus-4-7',
     'Other…',
   ];
   const modelPick = await vscode.window.showQuickPick(KNOWN_MODELS, { title: 'Model (must be routable in your tenant)', ignoreFocusOut: true });

@@ -87,21 +87,10 @@ function fillSddDocx(model, graph, generatedOn, templatePath = defaultSddTemplat
         const steps = (0, flowchart_1.hasHighLevelSteps)(model.highLevelSteps)
             ? model.highLevelSteps
             : solutionFlows[0]?.steps ?? [];
-        let single;
-        if ((0, flowchart_1.isReframework)(graph) || graph.layout === 'statemachine') {
-            // REFramework -> partition the real high-level steps by state; if none
-            // were derived, fall back to the canonical 4-state machine.
-            single = steps.length ? (0, flowchart_1.renderPartitionedFlow)(model.projectName, steps) : (0, flowchart_1.renderReframeworkStates)();
-        }
-        else if (graph.layout === 'flowchart') {
-            single = (0, flowchart_1.renderProcessFlow)(graph); // branch/decision-aware structured flow
-        }
-        else if (steps.length) {
-            single = (0, flowchart_1.renderHighLevelFlow)(model.projectName, steps); // Sequence -> linear
-        }
-        else {
-            single = (0, flowchart_1.renderProcessFlow)(graph);
-        }
+        // One centralized decision (renderEntryDiagram): state machine -> code-derived
+        // state chart; REFramework -> state swimlane; Flowchart/Sequence -> high-level
+        // technical flow. No per-project tuning.
+        const single = (0, flowchart_1.renderEntryDiagram)(model.projectName, graph, steps);
         embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', single, 9001);
     }
     // The per-process high-level flow section is not required (single or multi).

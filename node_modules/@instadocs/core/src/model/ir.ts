@@ -146,8 +146,39 @@ export interface ProcessGraph {
    * 'statemachine' (REFramework/state machine), 'flowchart', or 'sequence'.
    */
   layout?: 'statemachine' | 'flowchart' | 'sequence';
+  /**
+   * The actual parsed state machine of the entry workflow, when the root is a
+   * StateMachine (e.g. REFramework). Drives a diagram built from the REAL states,
+   * transitions and per-state activities — not a canned template.
+   */
+  stateMachine?: StateMachineIR;
   /** Free-form extraction diagnostics (unsupported activities, parse warnings). */
   warnings?: string[];
+}
+
+/** One outgoing transition of a state: its label, guard condition and target state id. */
+export interface StateTransition {
+  name: string;
+  condition?: string;
+  to: string; // target state id
+}
+
+/** One state of a StateMachine: real display name, description and per-state steps. */
+export interface StateNode {
+  id: string;
+  name: string;
+  annotation?: string;
+  /** Ordered activity labels inside the state (invoked workflows / key activities). */
+  steps: string[];
+  /** Whether this state is the final state (no outgoing transitions). */
+  isFinal: boolean;
+  transitions: StateTransition[];
+}
+
+/** A parsed StateMachine workflow — the real states + transitions from the XAML. */
+export interface StateMachineIR {
+  initial: string; // initial state id
+  states: StateNode[];
 }
 
 /** Convenience: an empty graph a parser can start populating. */

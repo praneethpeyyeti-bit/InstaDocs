@@ -1,21 +1,76 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.enrichSdd = enrichSdd;
 exports.enrichSddSolution = enrichSddSolution;
 exports.mergeGraphs = mergeGraphs;
 exports.buildQueueItemJson = buildQueueItemJson;
 exports.deterministicSdd = deterministicSdd;
+const fs = __importStar(require("fs"));
+const os = __importStar(require("os"));
+const path = __importStar(require("path"));
+const crypto = __importStar(require("crypto"));
 const ir_1 = require("../model/ir");
 const sdd_1 = require("../model/sdd");
 const gateway_1 = require("./gateway");
 const compact_1 = require("./compact");
 const uipathSession_1 = require("./uipathSession");
 const projectContext_1 = require("../context/projectContext");
+const flowchart_1 = require("../export/flowchart");
+/** Cache file for a given (model + prompt) — lets re-runs of the same project skip the LLM. */
+function cachePath(model, prompt) {
+    const key = crypto.createHash('sha256').update(`${model}\n${prompt}`).digest('hex').slice(0, 32);
+    return path.join(os.tmpdir(), 'instadocs-cache', `sdd-${key}.json`);
+}
+/** Apply the code-authoritative backfills to a parsed SddModel (shared by fresh + cached paths). */
+function finalizeModel(model, graph) {
+    model.projectName ||= graph.projectName;
+    model.platformLabel ||= ir_1.PLATFORM_LABELS[graph.platform];
+    if (!model.dependencies.length)
+        model.dependencies = deriveDependencies(graph);
+    backfillDependencyVersions(model, graph);
+    model.queueItemJson = buildQueueItemJson(graph);
+    return model;
+}
 const SYSTEM_PROMPT = `You are a senior RPA solution architect writing a Solution Design Document (SDD) — the TECHNICAL design record for an automation, aimed at developers, architects and support engineers.
 
 You are given EVIDENCE about a UiPath automation: a project-discovery context (authoritative summary of structure, dependencies, conventions, key workflows, architecture) plus a compacted technical outline (arguments, activities, invocations, exception handlers). Use it to describe the SOLUTION DESIGN accurately and concretely.
 
 Fill every section from the evidence. Be technical and specific (name the real workflows, dependencies, config keys, queues, exceptions). Where something is genuinely not derivable (e.g. a person's email, a production schedule), use "To be provided by SME" rather than inventing it. Do not fabricate systems, versions, or values not implied by the evidence.
+
+BE CONCISE — this is a reference design document, not prose. Keep every narrative field to 2-4 sentences, and every list/table to its most relevant items (typically 4-8 rows, more only when the evidence clearly warrants it). Do not pad, repeat, or restate. Shorter, accurate output is strongly preferred — it is faster and easier to read.
 
 Guidance per field:
 - purpose: what the solution does and why it exists (2-4 sentences, technical but clear).
@@ -83,6 +138,21 @@ async function enrichSdd(graph, options = {}) {
         '',
         'Write the SDD JSON now, technical and grounded in the evidence.',
     ].join('\n');
+    // Cache: identical project + model => reuse the prior LLM output (instant).
+    const cacheEnabled = !process.env.INSTADOCS_NO_CACHE;
+    const cp = cachePath(gateway.model, userPrompt);
+    if (cacheEnabled) {
+        try {
+            if (fs.existsSync(cp)) {
+                const model = finalizeModel(sdd_1.SddModelSchema.parse(extractJson(fs.readFileSync(cp, 'utf8'))), graph);
+                onProgress?.('Using cached analysis (same project + model) — skipping the Gateway call.');
+                return { model, usedLlm: true };
+            }
+        }
+        catch {
+            /* stale/corrupt cache — fall through to a fresh call */
+        }
+    }
     let lastErr;
     let token = gateway.token;
     let refreshedOnce = false;
@@ -94,14 +164,16 @@ async function enrichSdd(graph, options = {}) {
                 { role: 'user', content: userPrompt },
                 { role: 'user', content: `JSON Schema (informal): ${SCHEMA_HINT}` },
             ]);
-            const model = sdd_1.SddModelSchema.parse(extractJson(raw));
-            model.projectName ||= graph.projectName;
-            model.platformLabel ||= ir_1.PLATFORM_LABELS[graph.platform];
-            // Always ensure the flow diagram + dependencies are grounded in real data.
-            if (!model.dependencies.length)
-                model.dependencies = deriveDependencies(graph);
-            backfillDependencyVersions(model, graph);
-            model.queueItemJson = buildQueueItemJson(graph); // authoritative — from code
+            const model = finalizeModel(sdd_1.SddModelSchema.parse(extractJson(raw)), graph);
+            if (cacheEnabled) {
+                try {
+                    fs.mkdirSync(path.dirname(cp), { recursive: true });
+                    fs.writeFileSync(cp, raw);
+                }
+                catch {
+                    /* cache write is best-effort */
+                }
+            }
             return { model, usedLlm: true };
         }
         catch (err) {
@@ -169,10 +241,21 @@ async function enrichSddSolution(solutionName, projects, merged, options = {}) {
                 model.dependencies = deriveDependencies(merged);
             backfillDependencyVersions(model, merged);
             model.queueItemJson = buildQueueItemJson(merged); // authoritative — from code
-            // Ensure every project has a flow entry even if the LLM missed one.
+            // Ensure every project has a flow entry even if the LLM missed one, and
+            // stamp each flow with its project's ACTUAL layout so the exporter draws a
+            // REFramework state swimlane only for genuine REFramework projects (a
+            // Flowchart dispatcher stays a normal flowchart).
             for (const p of projects) {
-                if (!model.projectFlows.some((f) => f.project.toLowerCase() === p.name.toLowerCase())) {
-                    model.projectFlows.push({ project: p.name, steps: deriveHighLevelSteps(p.graph) });
+                const isRef = p.graph.layout === 'statemachine' || (!p.graph.layout && (0, flowchart_1.isReframework)(p.graph));
+                const sm = p.graph.stateMachine; // real parsed state machine, when present
+                const existing = model.projectFlows.find((f) => f.project.toLowerCase() === p.name.toLowerCase());
+                if (existing) {
+                    existing.reframework = isRef;
+                    if (sm)
+                        existing.stateMachine = sm;
+                }
+                else {
+                    model.projectFlows.push({ project: p.name, steps: deriveHighLevelSteps(p.graph), reframework: isRef, stateMachine: sm });
                 }
             }
             return { model, usedLlm: true };
@@ -219,18 +302,97 @@ function mergeGraphs(name, graphs) {
     }
     return merged;
 }
+/**
+ * Parse the model's JSON robustly. LLMs (esp. faster models) frequently emit
+ * (a) raw control characters inside string values and (b) truncated JSON when
+ * the output is cut off — both make JSON.parse throw, which otherwise wastes a
+ * ~2-minute retry per failure. We try direct → control-char-sanitized →
+ * truncation-repaired, so the FIRST attempt usually succeeds.
+ */
 function extractJson(raw) {
-    const t = raw.trim().replace(/^```[a-zA-Z]*\n?|\n?```$/g, '').trim();
-    try {
-        return JSON.parse(t);
+    let t = raw.trim().replace(/^```[a-zA-Z]*\n?|\n?```$/g, '').trim();
+    const s = t.indexOf('{');
+    if (s > 0)
+        t = t.slice(s); // drop any preamble before the object
+    const attempts = [t, sanitizeControlChars(t), repairJson(sanitizeControlChars(t))];
+    for (const a of attempts) {
+        try {
+            return JSON.parse(a);
+        }
+        catch {
+            /* try the next, more-repaired form */
+        }
     }
-    catch {
-        const s = t.indexOf('{');
-        const e = t.lastIndexOf('}');
-        if (s >= 0 && e > s)
-            return JSON.parse(t.slice(s, e + 1));
-        throw new Error('Response did not contain valid JSON.');
+    throw new Error('Response did not contain valid JSON.');
+}
+/** Escape raw control characters (newlines/tabs/etc.) that appear INSIDE JSON strings. */
+function sanitizeControlChars(s) {
+    let out = '';
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        const code = s.charCodeAt(i);
+        if (inStr) {
+            if (esc) {
+                out += ch;
+                esc = false;
+            }
+            else if (ch === '\\') {
+                out += ch;
+                esc = true;
+            }
+            else if (ch === '"') {
+                out += ch;
+                inStr = false;
+            }
+            else if (code < 0x20) {
+                out += ch === '\n' ? '\\n' : ch === '\r' ? '\\r' : ch === '\t' ? '\\t' : '\\u' + code.toString(16).padStart(4, '0');
+            }
+            else {
+                out += ch;
+            }
+        }
+        else {
+            out += ch;
+            if (ch === '"')
+                inStr = true;
+        }
     }
+    return out;
+}
+/** Repair truncated JSON: close a dangling string, drop a trailing partial token, close open brackets. */
+function repairJson(s) {
+    const stack = [];
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (inStr) {
+            if (esc)
+                esc = false;
+            else if (ch === '\\')
+                esc = true;
+            else if (ch === '"')
+                inStr = false;
+            continue;
+        }
+        if (ch === '"')
+            inStr = true;
+        else if (ch === '{')
+            stack.push('}');
+        else if (ch === '[')
+            stack.push(']');
+        else if (ch === '}' || ch === ']')
+            stack.pop();
+    }
+    let out = s;
+    if (inStr)
+        out += '"'; // close a dangling string
+    out = out.replace(/,\s*$/, '').replace(/:\s*$/, ': null'); // drop trailing comma / dangling key
+    while (stack.length)
+        out += stack.pop();
+    return out;
 }
 function deriveDependencies(graph) {
     const ctx = graph.projectContext;

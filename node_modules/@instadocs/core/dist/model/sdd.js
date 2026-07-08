@@ -117,7 +117,16 @@ exports.SddModelSchema = zod_1.z.object({
      * flow diagram per project. Empty for a single-project solution.
      */
     projectFlows: zod_1.z
-        .array(zod_1.z.object({ project: zod_1.z.string(), steps: zod_1.z.array(zod_1.z.string()).default([]) }))
+        .array(zod_1.z.object({
+        project: zod_1.z.string(),
+        steps: zod_1.z.array(zod_1.z.string()).default([]),
+        // Whether this project's ACTUAL layout is REFramework (state swimlane) or
+        // a plain flowchart/sequence. Set from the project graph, not the LLM.
+        reframework: zod_1.z.boolean().optional(),
+        // The project's REAL parsed StateMachine, when it has one — drives a
+        // code-derived state diagram for that project. Set from the graph.
+        stateMachine: zod_1.z.any().optional(),
+    }))
         .default([]),
     revisions: zod_1.z.array(Revision).default([]),
     contacts: zod_1.z.array(Contact).default([]),

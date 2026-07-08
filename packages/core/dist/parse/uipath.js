@@ -77,7 +77,15 @@ async function parseUiPath(workingDir) {
     // Detect the entry workflow's root layout (state machine / flowchart /
     // sequence) — drives which process-design diagram is drawn.
     if (graph.entryPoints[0]) {
-        graph.layout = detectLayout(path.join(workingDir, graph.entryPoints[0]));
+        const entryPath = path.join(workingDir, graph.entryPoints[0]);
+        graph.layout = detectLayout(entryPath);
+        // For a state machine, parse the REAL states/transitions so the diagram is
+        // built from the actual code rather than a generic REFramework template.
+        if (graph.layout === 'statemachine') {
+            const sm = parseStateMachine(entryPath);
+            if (sm)
+                graph.stateMachine = sm;
+        }
     }
     for (const file of xamlFiles) {
         try {
@@ -226,6 +234,120 @@ function detectLayout(file) {
         return undefined;
     }
 }
+/**
+ * Parse the real StateMachine of an entry XAML into a StateMachineIR: the actual
+ * states (with their annotations + the workflows they invoke) and the actual
+ * transitions (name, guard condition, target). This is what drives a dynamic
+ * REFramework diagram built from the code — not a canned 4-state template.
+ */
+function parseStateMachine(file) {
+    let sm;
+    try {
+        const doc = xml.parse((0, files_1.readText)(file));
+        const activity = doc.Activity ?? doc;
+        sm = findFirst(activity, 'StateMachine');
+    }
+    catch {
+        return undefined;
+    }
+    if (!sm)
+        return undefined;
+    // Collect every uniquely-defined State (by x:Name). References elsewhere use
+    // <x:Reference> (a string), so each state object is defined exactly once.
+    const byId = {};
+    (function collectStates(o) {
+        if (!o || typeof o !== 'object')
+            return;
+        if (Array.isArray(o))
+            return o.forEach(collectStates);
+        for (const k of Object.keys(o)) {
+            if (k === 'State')
+                for (const s of toArray(o.State))
+                    if (s && s['@_Name'])
+                        byId[s['@_Name']] = s;
+            collectStates(o[k]);
+        }
+    })(sm);
+    const ids = Object.keys(byId);
+    if (!ids.length)
+        return undefined;
+    const targetOf = (to) => {
+        if (!to)
+            return undefined;
+        if (to.Reference != null)
+            return String(to.Reference).trim();
+        const s = toArray(to.State)[0];
+        return s?.['@_Name'];
+    };
+    const states = ids.map((id) => {
+        const s = byId[id];
+        const transitionsRaw = toArray(s['State.Transitions']?.Transition);
+        const transitions = transitionsRaw
+            .map((t) => ({
+            name: String(t['@_DisplayName'] ?? 'Transition').trim(),
+            condition: t['Transition.Condition'] != null ? String(t['Transition.Condition']).trim() : undefined,
+            to: targetOf(t['Transition.To']) ?? '',
+        }))
+            .filter((t) => t.to);
+        return {
+            id,
+            name: String(s['@_DisplayName'] ?? id).trim(),
+            annotation: s['@_Annotation.AnnotationText'] ? String(s['@_Annotation.AnnotationText']).trim() : undefined,
+            steps: invokedWorkflows(s['State.Entry']),
+            isFinal: transitions.length === 0,
+            transitions,
+        };
+    });
+    const initialRef = String(sm['@_InitialState'] ?? '')
+        .replace(/[{}]/g, '')
+        .replace(/x:Reference/i, '')
+        .trim();
+    const initial = byId[initialRef] ? initialRef : ids[0];
+    return { initial, states };
+}
+/** The first descendant object under `key` anywhere in the tree. */
+function findFirst(o, key) {
+    if (!o || typeof o !== 'object')
+        return undefined;
+    if (Array.isArray(o)) {
+        for (const it of o) {
+            const r = findFirst(it, key);
+            if (r)
+                return r;
+        }
+        return undefined;
+    }
+    if (o[key])
+        return toArray(o[key])[0];
+    for (const k of Object.keys(o)) {
+        const r = findFirst(o[k], key);
+        if (r)
+            return r;
+    }
+    return undefined;
+}
+/** Ordered base names of the workflows a state's Entry invokes (its real steps). */
+function invokedWorkflows(entry) {
+    const out = [];
+    (function walk(o) {
+        if (!o || typeof o !== 'object')
+            return;
+        if (Array.isArray(o))
+            return o.forEach(walk);
+        for (const k of Object.keys(o)) {
+            if (k === 'InvokeWorkflowFile') {
+                for (const iv of toArray(o[k])) {
+                    const f = iv?.['@_WorkflowFileName'];
+                    if (f)
+                        out.push(String(f).split(/[\\/]/).pop().replace(/\.xaml$/i, ''));
+                }
+            }
+            walk(o[k]);
+        }
+    })(entry);
+    // De-dup consecutive repeats (e.g. SetTransactionStatus invoked on each branch).
+    return out.filter((w, i) => w !== out[i - 1]);
+}
 function parseXamlFile(file, workingDir, graph) {
     const rel = path.relative(workingDir, file);
     const doc = xml.parse((0, files_1.readText)(file));
@@ -282,6 +404,29 @@ function innerType(type) {
 const SKIP_KEYS = new Set(['Members', 'TextExpression.NamespacesForImplementation',
     'TextExpression.ReferencesForImplementation']);
 /**
+ * XML elements that are NOT activities — CLR/collection value types, WPF
+ * view-state types, argument/expression wrappers and flowchart plumbing. They
+ * appear inside variables, arguments, HintSize/ConnectorLocation view-state,
+ * etc. We must not emit them as process nodes (they showed up as bogus "STEP
+ * Dictionary / Point / Size / FlowStep" boxes), but we still recurse through
+ * them so genuine activities nested inside are captured.
+ */
+const NON_ACTIVITY = new Set([
+    // argument / expression / reference wrappers
+    'InArgument', 'OutArgument', 'InOutArgument', 'Reference', 'Literal',
+    'VisualBasicValue', 'VisualBasicReference', 'ExpressionServices', 'PropertyValue',
+    // flowchart / structural plumbing + delegate wrappers
+    'FlowStep', 'ActivityAction', 'ActivityFunc', 'DelegateInArgument', 'DelegateOutArgument',
+    // WPF / view-state value types
+    'Point', 'Size', 'PointCollection', 'Rect', 'Color', 'SolidColorBrush',
+    'Thickness', 'CornerRadius', 'Matrix', 'Vector', 'PointF', 'SizeF',
+    // CLR value / collection TYPES (variable + x:TypeArguments)
+    'Boolean', 'Int32', 'Int64', 'Double', 'Single', 'Decimal', 'Byte', 'Char',
+    'String', 'Object', 'DateTime', 'TimeSpan', 'Guid', 'Uri', 'Version',
+    'Dictionary', 'List', 'HashSet', 'Array', 'DataTable', 'DataRow', 'DataColumn',
+    'Queue', 'Stack', 'IEnumerable', 'KeyValuePair',
+]);
+/**
  * Recursively walk activity nodes, creating ProcessNodes + edges. Each node
  * records its `parentId` and the `branch` it sits on (Then/Else/Catch/loop body)
  * so the process-flow renderer can rebuild the true branching tree instead of a
@@ -303,6 +448,14 @@ function walkActivity(obj, graph, file, parentId, branch) {
             const childBranch = branchForKey(key);
             for (const child of children)
                 walkActivity(child, graph, file, parentId, childBranch);
+            continue;
+        }
+        // Non-activity elements (value types, view-state, argument wrappers, FlowStep):
+        // don't emit a node, but still recurse so real activities nested inside them
+        // (e.g. the activity under a FlowStep.Action) are captured.
+        if (NON_ACTIVITY.has(key)) {
+            for (const child of children)
+                walkActivity(child, graph, file, parentId, branch);
             continue;
         }
         let prevSibling;

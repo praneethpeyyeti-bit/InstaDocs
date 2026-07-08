@@ -2,7 +2,7 @@
   "name": "instadocs-vscode",
   "displayName": "InstaDocs",
   "description": "Generate a Solution Design Document + Test Case Document from an RPA/automation project.",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "publisher": "instadocs",
   "engines": {
     "vscode": "^1.85.0"
@@ -13,10 +13,20 @@
     "type": "git",
     "url": "https://example.com/instadocs.git"
   },
-  "activationEvents": [],
+  "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "instadocs.welcome",
+        "title": "Get Started",
+        "category": "InstaDocs"
+      },
+      {
+        "command": "instadocs.openPanel",
+        "title": "Open Generator",
+        "category": "InstaDocs"
+      },
       {
         "command": "instadocs.generateFromWorkspace",
         "title": "Generate SDD + Test Cases",
@@ -41,6 +51,11 @@
     "menus": {
       "explorer/context": [
         {
+          "command": "instadocs.openPanel",
+          "when": "explorerResourceIsFolder",
+          "group": "instadocs@0"
+        },
+        {
           "command": "instadocs.generateFromWorkspace",
           "when": "explorerResourceIsFolder",
           "group": "instadocs@1"
@@ -52,6 +67,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "instadocs.welcome",
+          "when": "true"
+        },
+        {
+          "command": "instadocs.openPanel",
+          "when": "true"
+        },
         {
           "command": "instadocs.generateFromWorkspace",
           "when": "workspaceFolderCount > 0"
@@ -97,8 +120,8 @@
         },
         "instadocs.gateway.model": {
           "type": "string",
-          "default": "anthropic.claude-opus-4-8",
-          "description": "Model id for the LLM Gateway normalized API (e.g. anthropic.claude-opus-4-8, anthropic.claude-sonnet-4-5-20250929-v1:0, anthropic.claude-haiku-4-5-20251001-v1:0)."
+          "default": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "description": "Model id for the LLM Gateway normalized API. Sonnet 4.5 (default) is the fast/quality balance; haiku-4-5 is fastest; opus-4-8 is best quality but slowest."
         }
       }
     }

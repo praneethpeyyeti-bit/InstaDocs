@@ -6,7 +6,7 @@ exports.compactGraph = compactGraph;
  * LLM. Large graphs are truncated so we stay within context limits; the counts
  * of what was dropped are stated so nothing is silently hidden.
  */
-function compactGraph(graph, maxNodes = 300) {
+function compactGraph(graph, maxNodes = 180) {
     const lines = [];
     // Ground the LLM with project-discovery context, when available.
     const ctx = graph.projectContext;

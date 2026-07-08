@@ -23,7 +23,7 @@ exports.GatewayError = GatewayError;
 /** Call the Gateway and return the assistant message content (expected JSON). */
 async function chat(config, messages) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 240_000);
+    const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 300_000);
     try {
         const res = await fetch(config.baseUrl, {
             method: 'POST',

@@ -5,7 +5,7 @@ import { ProcessGraph } from '../model/ir';
  * LLM. Large graphs are truncated so we stay within context limits; the counts
  * of what was dropped are stated so nothing is silently hidden.
  */
-export function compactGraph(graph: ProcessGraph, maxNodes = 300): string {
+export function compactGraph(graph: ProcessGraph, maxNodes = 180): string {
   const lines: string[] = [];
 
   // Ground the LLM with project-discovery context, when available.

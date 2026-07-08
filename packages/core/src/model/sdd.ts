@@ -118,7 +118,18 @@ export const SddModelSchema = z.object({
    * flow diagram per project. Empty for a single-project solution.
    */
   projectFlows: z
-    .array(z.object({ project: z.string(), steps: z.array(z.string()).default([]) }))
+    .array(
+      z.object({
+        project: z.string(),
+        steps: z.array(z.string()).default([]),
+        // Whether this project's ACTUAL layout is REFramework (state swimlane) or
+        // a plain flowchart/sequence. Set from the project graph, not the LLM.
+        reframework: z.boolean().optional(),
+        // The project's REAL parsed StateMachine, when it has one — drives a
+        // code-derived state diagram for that project. Set from the graph.
+        stateMachine: z.any().optional(),
+      })
+    )
     .default([]),
 
   revisions: z.array(Revision).default([]),
