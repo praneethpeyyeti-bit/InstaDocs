@@ -82,7 +82,7 @@ function walkFiles(root, options = {}) {
  * Render a clean ASCII folder tree for `root` (folders first, a few key files),
  * skipping noise dirs. Used for the SDD "Project folder structure" section.
  */
-function folderTree(root, maxDepth = 2, maxLines = 40) {
+function folderTree(root, maxDepth = 5, maxLines = 200) {
     const lines = [`${path.basename(root)}/`];
     const walk = (dir, prefix, depth) => {
         if (depth > maxDepth || lines.length >= maxLines)
@@ -97,25 +97,26 @@ function folderTree(root, maxDepth = 2, maxLines = 40) {
         const dirs = entries
             .filter((e) => e.isDirectory() && !IGNORED_DIRS.has(e.name) && !e.name.startsWith('.'))
             .sort((a, b) => a.name.localeCompare(b.name));
-        const files = entries.filter((e) => e.isFile() && !e.name.startsWith('.'));
-        const shownFiles = files.slice(0, depth === 0 ? 6 : 3);
+        // Show every real file — the folder structure must be complete, not sampled.
+        const files = entries
+            .filter((e) => e.isFile() && !e.name.startsWith('.'))
+            .sort((a, b) => a.name.localeCompare(b.name));
         const items = [
             ...dirs.map((d) => ({ name: d.name, dir: true })),
-            ...shownFiles.map((f) => ({ name: f.name, dir: false })),
+            ...files.map((f) => ({ name: f.name, dir: false })),
         ];
         items.forEach((it, i) => {
             if (lines.length >= maxLines)
                 return;
-            const last = i === items.length - 1 && files.length <= shownFiles.length;
+            const last = i === items.length - 1;
             lines.push(`${prefix}${last ? '└─ ' : '├─ '}${it.name}${it.dir ? '/' : ''}`);
             if (it.dir)
                 walk(path.join(dir, it.name), prefix + (last ? '   ' : '│  '), depth + 1);
         });
-        if (files.length > shownFiles.length && lines.length < maxLines) {
-            lines.push(`${prefix}└─ … ${files.length - shownFiles.length} more file(s)`);
-        }
     };
     walk(root, '', 0);
+    if (lines.length >= maxLines)
+        lines.push('…');
     return lines.join('\n');
 }
 function readText(file) {

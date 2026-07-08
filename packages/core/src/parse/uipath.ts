@@ -135,41 +135,80 @@ function wfBase(p: string): string {
   return String(p || '').split(/[\\/]/).pop()!.replace(/\.xaml$/i, '');
 }
 
-/**
- * For each state, expand its invoked-workflow steps into the workflows THEY
- * invoke, one level deep — surfacing the real business sub-steps (e.g. Process ->
- * OpenWorkItemDetails, GenerateSHA1Hash, UpdateWorkItem). Falls back to the
- * workflow's own name when it has no meaningful sub-invocations or isn't present.
- */
+// REFramework framework workflows — their own names are already meaningful to an
+// RPA developer, so keep them concise (do NOT dump their internal activities).
 const REFRAMEWORK_PLUMBING =
-  /^(gettransactiondata|settransactionstatus|initallsettings|initallapplications|closeallapplications|killallprocesses|process|retrycurrenttransaction|takescreenshot)$/i;
+  /^(gettransactiondata|settransactionstatus|initallsettings|initallapplications|closeallapplications|killallprocesses|retrycurrenttransaction|takescreenshot)$/i;
 
+/** "SendMail" -> "Send Mail"; "InitAllApps" -> "Init All Apps". */
+function humanizeWf(s: string): string {
+  return s.replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/\s{2,}/g, ' ').trim();
+}
+
+// Structural / plumbing display names that carry no business meaning.
+const STEP_DROP = /^(sequence|do|body|main|comment ?out|ignored activities|try ?catch|catch|finally|throw|rethrow|backup ?slot|attach (window|browser)|assign)$/i;
+// An If/Switch worth showing is one whose label reads as an ACTION, not a condition.
+const ACTION_VERB = /^(add|write|send|update|create|delete|remove|move|save|read|get|fetch|extract|upload|download|open|close|post|mark|generate|build|store|insert|log ?in|sign ?in|navigate|click|assign to|set)\b/i;
+
+/**
+ * A short, MEANINGFUL set of business actions performed inside one workflow — the
+ * milestones an RPA developer would recognise (data I/O, UI actions, invoked
+ * business workflows, named phases, action-style decisions). NOT every activity:
+ * bare branch conditions, logs, assigns and container plumbing are dropped.
+ */
+function meaningfulActions(graph: ProcessGraph, base: string, cap: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const n of graph.nodes) {
+    if (wfBase(String(n.raw?.file ?? '')).toLowerCase() !== base) continue;
+    let s = (n.displayName || '').trim();
+    if (!s || STEP_DROP.test(s) || s.toLowerCase() === base) continue;
+    if (n.kind === 'log' || n.kind === 'assign') continue;
+    if (n.kind === 'invoke') {
+      const m = s.match(/([^\\/]+)\.xaml/i);
+      s = humanizeWf(m ? m[1] : s.replace(/\s*-?\s*invoke workflow file$/i, '').replace(/^invoke\s+/i, '').replace(/\s+workflow$/i, ''));
+    } else if (n.kind === 'if') {
+      continue; // a branch condition — the diagram already shows real transitions as diamonds
+    } else if (n.kind === 'switch') {
+      s = s.replace(/^switch\s*[-–:]\s*/i, '').trim();
+      if (!ACTION_VERB.test(s)) continue; // keep only action-style switches (e.g. "Add to Database")
+    } else if (n.kind === 'other' || n.kind === 'sequence') {
+      // Keep only descriptive, multi-word phases / real activities.
+      if (!/\s/.test(s)) continue;
+    }
+    s = s.replace(/\s{2,}/g, ' ').trim();
+    const k = s.toLowerCase();
+    if (!s || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+/**
+ * Give each state a meaningful step list: REFramework framework workflows keep
+ * their concise names, while the business workflow (Process, or any non-framework
+ * workflow the state invokes) is summarised into its key actions — so the diagram
+ * reads as a flow, not a template and not an activity dump.
+ */
 function expandStateMachineSteps(graph: ProcessGraph): void {
   const sm = graph.stateMachine;
   if (!sm) return;
-  const nodeById = new Map(graph.nodes.map((n) => [n.id, n] as const));
-  // Map each workflow file -> the base names of the workflows it invokes.
-  const invokesByFile = new Map<string, string[]>();
-  for (const inv of graph.invocations) {
-    const host = inv.nodeId ? nodeById.get(inv.nodeId) : undefined;
-    const hostBase = wfBase(String(host?.raw?.file ?? '')).toLowerCase();
-    const target = wfBase(inv.target);
-    if (!hostBase || !target || /^unknown$/i.test(target)) continue;
-    const arr = invokesByFile.get(hostBase) ?? [];
-    if (!arr.some((x) => x.toLowerCase() === target.toLowerCase())) arr.push(target);
-    invokesByFile.set(hostBase, arr);
-  }
   for (const st of sm.states) {
-    const expanded: string[] = [];
+    const combined: string[] = [];
     for (const step of st.steps) {
-      // Expand into the BUSINESS workflows this step invokes (drop framework
-      // plumbing); if it invokes none, keep the step's own name.
-      const subs = (invokesByFile.get(step.toLowerCase()) ?? []).filter((t) => !REFRAMEWORK_PLUMBING.test(t));
-      if (subs.length) expanded.push(...subs);
-      else expanded.push(step);
+      const wb = step.toLowerCase();
+      if (wb !== 'process' && REFRAMEWORK_PLUMBING.test(wb)) {
+        combined.push(humanizeWf(step)); // framework step — already meaningful
+      } else {
+        const acts = meaningfulActions(graph, wb, 6);
+        if (acts.length) combined.push(...acts);
+        else combined.push(humanizeWf(step));
+      }
     }
     const seen = new Set<string>();
-    st.steps = expanded.filter((s) => (seen.has(s.toLowerCase()) ? false : (seen.add(s.toLowerCase()), true))).slice(0, 6);
+    st.steps = combined.filter((s) => (seen.has(s.toLowerCase()) ? false : (seen.add(s.toLowerCase()), true))).slice(0, 7);
   }
 }
 

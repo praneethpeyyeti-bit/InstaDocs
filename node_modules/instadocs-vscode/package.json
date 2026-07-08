@@ -2,7 +2,7 @@
   "name": "instadocs-vscode",
   "displayName": "InstaDocs",
   "description": "Generate a Solution Design Document + Test Case Document from an RPA/automation project.",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "instadocs",
   "engines": {
     "vscode": "^1.85.0"
