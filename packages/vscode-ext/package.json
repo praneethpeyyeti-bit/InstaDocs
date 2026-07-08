@@ -2,18 +2,22 @@
   "name": "instadocs-vscode",
   "displayName": "InstaDocs",
   "description": "Generate a Solution Design Document + Test Case Document from an RPA/automation project.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "instadocs",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://example.com/instadocs.git"
   },
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -109,7 +113,11 @@
         },
         "instadocs.gateway.servicePrefix": {
           "type": "string",
-          "enum": ["", "agenthub_", "orchestrator_"],
+          "enum": [
+            "",
+            "agenthub_",
+            "orchestrator_"
+          ],
           "default": "",
           "description": "Gateway service prefix. Leave empty to auto-select (agenthub_ for *.uipath.com, else orchestrator_)."
         },

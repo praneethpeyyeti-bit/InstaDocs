@@ -78,9 +78,14 @@ function byRole(a: ProjectRef, b: ProjectRef): number {
 function displayName(dir: string): string {
   const folder = path.basename(dir);
   if (/^(dispatcher|performer|reporter|process)$/i.test(folder)) return cap(folder);
+  // Role from a "<ProcessName>_Dispatcher" FOLDER suffix (the project.json name
+  // often drops the role — e.g. folder EmailExcavation_Dispatcher, name
+  // "EmailExcavation" — so the block must not be titled like the whole solution).
+  const fm = ROLE_RE.exec(folder);
+  if (fm) return cap(fm[1]);
   const pj = readProjectName(dir);
-  const m = ROLE_RE.exec(pj);
-  if (m) return cap(m[1]);
+  const pm = ROLE_RE.exec(pj);
+  if (pm) return cap(pm[1]);
   return pj;
 }
 
