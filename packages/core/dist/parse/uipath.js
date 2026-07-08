@@ -95,6 +95,22 @@ async function parseUiPath(workingDir) {
             graph.warnings.push(`Failed to parse ${path.relative(workingDir, file)}: ${err.message}`);
         }
     }
+    // Record which applications/systems each workflow actually touches (from the
+    // real URLs / browsers / Excel / mail / launched apps in its XAML) so the
+    // process diagram can label each state with the app it uses, not the file name.
+    graph.workflowApps = {};
+    for (const file of xamlFiles) {
+        try {
+            const apps = detectApps((0, files_1.readText)(file));
+            if (apps.length) {
+                const base = path.basename(file).replace(/\.xaml$/i, '').toLowerCase();
+                graph.workflowApps[base] = apps;
+            }
+        }
+        catch {
+            /* non-fatal */
+        }
+    }
     // Coded workflows (.cs) — lightweight extraction.
     for (const file of (0, files_1.walkFiles)(workingDir, { extensions: ['.cs'] })) {
         try {
@@ -590,6 +606,70 @@ function readScreenshot(child) {
         }
     }
     return undefined;
+}
+/**
+ * Detect the applications/systems a single workflow's XAML touches, as friendly
+ * names, from its real evidence: web URLs (→ site name + browser), Excel
+ * workbooks, mail activities, and launched desktop apps. Deterministic and
+ * generic — works for any project, not just the ACME sample. De-duped, capped.
+ */
+const KNOWN_SITE = [
+    [/acme/i, 'ACME System1'],
+    [/salesforce|force\.com/i, 'Salesforce'],
+    [/sharepoint/i, 'SharePoint'],
+    [/servicenow/i, 'ServiceNow'],
+    [/workday/i, 'Workday'],
+    [/sap\b/i, 'SAP'],
+];
+function friendlySite(host) {
+    for (const [re, name] of KNOWN_SITE)
+        if (re.test(host))
+            return name;
+    // Fall back to the second-level domain label, title-cased and de-hyphenated
+    // (e.g. "sha1-online.com" → "SHA1 Online", "contoso.com" → "Contoso").
+    const labels = host.replace(/^www\./i, '').split('.');
+    const core = labels.length >= 2 ? labels[labels.length - 2] : labels[0];
+    return core
+        .split(/[-_]/)
+        .filter(Boolean)
+        .map((w) => (w.length <= 4 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+        .join(' ');
+}
+function detectApps(xamlText) {
+    const apps = new Set();
+    // Web sites + browser type — ONLY from real navigation attributes (Url=… /
+    // Address=…), never from xmlns schema URIs in the file header.
+    const browser = /BrowserType="([^"]+)"/i.exec(xamlText)?.[1];
+    const hosts = new Set();
+    // Host must be a real domain (contains a dot); skip namespace / platform URIs.
+    for (const m of xamlText.matchAll(/(?:Url|Address|TargetUrl)="[^"]*?https?:\/\/(?:&quot;\s*&amp;?\s*)?([a-z0-9-]+\.[a-z0-9.-]+)/gi)) {
+        const h = m[1].toLowerCase();
+        if (/schemas\.|w3\.org|xmlns|microsoft\.com|openxmlformats|schema\.org/.test(h))
+            continue;
+        hosts.add(h);
+    }
+    for (const h of hosts)
+        apps.add(friendlySite(h));
+    void browser; // browser type intentionally omitted from the label to reduce clutter
+    // Excel / workbooks (activity names, not incidental strings).
+    if (/ExcelApplicationScope|ExcelProcessScope|WorkbookPath="|WorkbookApplicationScope|ReadRange|WriteRange|ReadCell|WriteCell/i.test(xamlText))
+        apps.add('Excel');
+    // Email.
+    if (/OutlookMailMessage|SendOutlookMail|SendMailMessage|SMTP|ExchangeMail|GetIMAPMail|GetPOP3Mail|GetOutlookMail/i.test(xamlText))
+        apps.add('Email');
+    // Databases — real DB activities only (NOT System.Data.DataTable variable types).
+    if (/DatabaseConnect|ExecuteQuery|ExecuteNonQuery|RunCommand.*Database|OpenConnection|InsertDataTable/i.test(xamlText))
+        apps.add('Database');
+    // PDF.
+    if (/ReadPDFText|ReadPDFWithOCR|ExtractPDFPageRange/i.test(xamlText))
+        apps.add('PDF');
+    // Launched desktop apps (Open Application / Start Process).
+    for (const m of xamlText.matchAll(/FileName="[^"]*?([^\\/"]+)\.exe"/gi)) {
+        const exe = m[1];
+        if (!/^(cmd|powershell|conhost)$/i.test(exe))
+            apps.add(exe.charAt(0).toUpperCase() + exe.slice(1));
+    }
+    return [...apps].slice(0, 3);
 }
 function parseCodedWorkflow(file, workingDir, graph) {
     const rel = path.relative(workingDir, file);

@@ -57,6 +57,39 @@ function compactGraph(graph, maxNodes = 180) {
             lines.push('  Guardrails: ' + agent.guardrails.join('; '));
         lines.push('');
     }
+    // REFramework state evidence — per state: the workflows it invokes, the real
+    // applications those workflows use, and a few key activities. This is what lets
+    // the analyzer write accurate per-state business steps (stateFlows).
+    if (graph.stateMachine?.states?.length) {
+        const byFile = new Map();
+        for (const n of graph.nodes) {
+            const f = String(n.raw?.file ?? '').split(/[\\/]/).pop()?.replace(/\.xaml$/i, '').toLowerCase() ?? '';
+            if (!f)
+                continue;
+            if (!byFile.has(f))
+                byFile.set(f, []);
+            const dn = (n.displayName ?? '').trim();
+            if (dn && !/^(sequence|body|do|then|else|assign|log message|target|comment)$/i.test(dn))
+                byFile.get(f).push(dn);
+        }
+        lines.push('REFRAMEWORK STATES (use the EXACT state names below for stateFlows):');
+        for (const st of graph.stateMachine.states) {
+            const wfs = st.steps;
+            const appsFor = new Set();
+            const acts = [];
+            for (const wf of wfs) {
+                for (const a of graph.workflowApps?.[wf.toLowerCase()] ?? [])
+                    appsFor.add(a);
+                for (const dn of byFile.get(wf.toLowerCase()) ?? [])
+                    if (acts.length < 10 && /^(get|read|retrieve|extract|parse|calculate|build|validate|update|submit|create|send|download|upload|log ?in|login|open|go to|navigate|close)\b/i.test(dn))
+                        acts.push(dn);
+            }
+            lines.push(`  ${st.name}: invokes ${wfs.join(', ') || '(none)'}` +
+                (appsFor.size ? `; apps: ${[...appsFor].join(', ')}` : '') +
+                (acts.length ? `; activities: ${acts.slice(0, 8).join(' / ')}` : ''));
+        }
+        lines.push('');
+    }
     // Declared package dependencies (authoritative — from project.json).
     if (graph.dependencies?.length) {
         lines.push('DEPENDENCIES (from project.json): ' +

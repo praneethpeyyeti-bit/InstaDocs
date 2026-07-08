@@ -47,6 +47,7 @@ Guidance per field:
 - architecturePoints: the architecture broken into 4-8 labelled points, each {aspect, detail}. Cover, where applicable: Pattern (e.g. REFramework state machine / linear Sequence / Flowchart / other), Key components & workflows, Data flow, External integrations, Configuration, Error handling & retry, Scalability. Keep each detail to one or two sentences.
 - highLevelSteps: the main BUSINESS steps of the process in execution order, as an array of 4-12 short imperative phrases (e.g. "Log in to System1", "Retrieve work item details", "Calculate SHA1 security hash", "Update work item", "Set transaction status"). These drive the high-level process flow diagram, so describe the real business flow — NOT framework plumbing (no "Initialize", "Get Transaction Data", "Kill processes"). For a MULTI-PROJECT solution leave this empty and use projectFlows instead.
 - projectFlows: ONLY for a multi-project solution (e.g. Dispatcher / Performer / Reporter). One entry per project: { project: <its name>, steps: [4-12 high-level business steps for that project] }. Each project gets its own high-level flow diagram. Leave empty for a single-project solution.
+- stateFlows: ONLY for a REFramework state-machine project (when the evidence has a "REFRAMEWORK STATES" section). One entry per state, using the EXACT state names listed there (e.g. Initialization, Get Transaction Data, Process Transaction, End Process). Each: { state, steps: [2-6 SHORT business steps, each ≤6 words, describing what that state ACTUALLY DOES and naming the real application(s) — e.g. "Read config workbook", "Retrieve Orchestrator assets", "Log in to ACME System1", "Calculate SHA1 hash", "Update work item status", "Close all applications"] }. Ground every step in that state's invoked workflows / activities / apps from the evidence. Do NOT restate the workflow file names. Leave EMPTY for non-REFramework projects.
 - systemsPrereq: systems/applications the bot needs and the requisite for each (access, license, network).
 - accessSettings: per system — access detail, access level (read/write), access method (API/UI/DB).
 - robotInfo: key/value robot & process facts (robot type, execution target, concurrency, unattended/attended, entry point, in/out arguments).
@@ -73,7 +74,7 @@ Guidance per field:
 Respond with ONLY a single JSON object matching the schema. No markdown, no commentary.`;
 
 const SCHEMA_HINT = [
-  'projectName, platformLabel, purpose, summary, architecture, architecturePoints:[{aspect,detail}], highLevelSteps:[string], projectFlows:[{project,steps:[string]}],',
+  'projectName, platformLabel, purpose, summary, architecture, architecturePoints:[{aspect,detail}], highLevelSteps:[string], projectFlows:[{project,steps:[string]}], stateFlows:[{state,steps:[string]}],',
   'revisions:[{rev,date,role,summary,author}], contacts:[{role,name,email,org}], sourceDocuments:[{title,author,version,date}],',
   'systemsPrereq:[{system,requisite}], accessSettings:[{system,detail,level,method}], robotInfo:[{item,desc}],',
   'processes:[{name,folderPath,description}], triggers:[{process,type,recurrence,folderPath,notes}], queues:[{name,folderPath,details}],',
@@ -533,6 +534,7 @@ export function deterministicSdd(graph: ProcessGraph): SddModel {
     architecturePoints: [],
     highLevelSteps: deriveHighLevelSteps(graph),
     projectFlows: [],
+    stateFlows: [],
     revisions: [],
     contacts: [],
     sourceDocuments: [],
