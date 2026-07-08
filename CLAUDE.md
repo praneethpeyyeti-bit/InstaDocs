@@ -24,7 +24,7 @@ not configured, generation fails with a clear message.
 ## Architecture (layered, one IR)
 
 ```
-packages/vscode-ext   ← VS Code shell: commands, panel, preview webview, export
+packages/vscode-ext   ← VS Code shell: welcome page + generate panel (source, gateway, export)
         │ imports
 packages/core         ← pure-TS pipeline, no UI
   repo → detect → parse → analyze → generate → export
@@ -64,8 +64,10 @@ cd packages/core && npx tsc -p tsconfig.json && npx vitest run
 # CLI
 node packages/core/dist/cli.js <repo-or-folder> --out ./out [--doc-type add|sdd]
 
-# VS Code extension: press F5 (Run InstaDocs Extension), open a project, run
-# "InstaDocs: Generate Docs from Open Workspace".
+# VS Code extension: press F5 (Run InstaDocs Extension), then run
+# "InstaDocs: Open Generator" (the one panel: source folder / Git URL +
+# gateway config + output folder + Generate). "InstaDocs: Get Started" opens
+# the welcome page. Those are the only two commands.
 ```
 
 > ⚠️ **`dist/` and `node_modules/` are committed** in this repo, so it runs without
@@ -150,7 +152,10 @@ Test projects used during this work (standard ACME REFramework demo):
 
 ## Repo map
 - `packages/core/` — the pipeline (`@instadocs/core`), CLI at `dist/cli.js`.
-- `packages/vscode-ext/` — VS Code extension shell.
+- `packages/vscode-ext/` — VS Code extension shell. Two commands only —
+  `instadocs.openPanel` (generate panel, `src/panel.ts`) and `instadocs.welcome`
+  (`src/welcome.ts`); shared dark theme in `src/ui/theme.ts`. The panel is the
+  whole flow (source folder / Git URL → gateway → output → generate → save).
 - `Templates/` — branded `SDD.docx` / `ADD.docx` / `TestCases.xlsx`.
 - `packages/core/assets/` — tagged+scrubbed template copies used at fill time.
 - `scripts/` — `tag-sdd-template.js` / `tag-add-template.js` regenerate the tagged assets.

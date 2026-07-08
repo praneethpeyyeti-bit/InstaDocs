@@ -43,6 +43,11 @@ export INSTADOCS_GATEWAY_MODEL="anthropic.claude-opus-4-8"
 `instadocs.gateway.baseHost` · `organization` · `tenant` · `servicePrefix` · `baseUrl` (full URL) · `model`.
 A manual URL/host with no token prompts once and stores it in SecretStorage.
 
+Open these from the extension: the welcome page's **Gateway settings** button
+jumps straight to `instadocs.gateway` in Settings, and the **Open Generator**
+panel has an inline **Override config** section (host/org/tenant/model/token)
+that applies just to that generation run.
+
 ## Notes
 - **Model must be routable in the customer's tenant** (region/product gating). If a model returns `417 "No llm routing rule found"`, pick another via `model`.
 - Calls consume **Agent Units**.

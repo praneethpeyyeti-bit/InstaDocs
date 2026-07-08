@@ -46,7 +46,7 @@ docs), but specialized for the automation/RPA niche and the UiPath LLM Gateway.
 ## Architecture (layered)
 
 ```
-VS Code extension (packages/vscode-ext)   ← shell: command, progress, webview, export
+VS Code extension (packages/vscode-ext)   ← shell: welcome page + generate panel (source, gateway, output, export)
         │ imports
 @instadocs/core (packages/core)           ← pure TS pipeline, no UI
   repo → detect → parse → analyze → generate → export
@@ -66,7 +66,7 @@ future UiPath Coded App or web shell with no rework.
   validated with zod; **LLM-only, no deterministic fallback** ([analyze/](packages/core/src/analyze/))
 - **detect (doc type)** — RPA vs agentic classification ([detect/docType.ts](packages/core/src/detect/docType.ts))
 - **parse (agent)** — `agent.json` / coded agent → `AgentSpec` on the IR ([parse/agent.ts](packages/core/src/parse/agent.ts))
-- **generate** — doc AST used for the in-editor markdown preview
+- **generate** — doc AST / markdown rendering of the model
   ([export/sddMarkdown.ts](packages/core/src/export/sddMarkdown.ts))
 - **export** ([export/](packages/core/src/export/)):
   - SDD → Word via `docxtemplater` filling the branded template
@@ -132,16 +132,29 @@ export INSTADOCS_GATEWAY_MODEL="anthropic.claude-opus-4-8"
 
 ### VS Code extension
 
-Press **F5** (Run InstaDocs Extension). In the Extension Development Host:
+Install the packaged VSIX (`packages/vscode-ext/instadocs-vscode-win32-x64-*.vsix`)
+or press **F5** to run the Extension Development Host. The extension has **two
+commands** (Command Palette → "InstaDocs"):
 
-1. Open a folder containing an automation project.
-2. Run **InstaDocs: Generate Docs from Open Workspace** (or **… from Git URL**).
-3. Review the SDD/ADD / Test Cases in the preview, then click **Export** and pick
-   a folder.
+- **InstaDocs: Get Started** — the welcome page (readiness checklist + a button
+  into the generator). Also shown automatically on startup.
+- **InstaDocs: Open Generator** — the one panel that does the whole job:
+  1. Pick a **source** — a local folder (Browse…) or a **Git URL** (+ branch).
+  2. Confirm the **UiPath LLM Gateway** (endpoint + model; expand *Override
+     config* to set host/org/tenant/model/token for this run).
+  3. Choose an **output folder**, click **Generate**, and watch the progress log.
+  4. The SDD/ADD `.docx` + Test Cases `.xlsx` are written to the output folder —
+     the result card links them with **Show in folder**.
 
-Configure the LLM Gateway in Settings (`instadocs.gateway.baseUrl`,
-`instadocs.gateway.model`); the token is prompted once and stored in VS Code
-SecretStorage.
+You can also **right-click a folder** in the Explorer → **InstaDocs: Open Generator**.
+
+Configure the LLM Gateway in Settings (`instadocs.gateway.baseHost` /
+`organization` / `tenant` / `model`, or a full `baseUrl`), or just `uip login`;
+a manually-set URL prompts for a token once and stores it in VS Code SecretStorage.
+See [CONFIGURATION.md](CONFIGURATION.md).
+
+> **Tip:** run the UiPath **project-discovery** agent first (it writes `AGENTS.md`)
+> for the sharpest, business-worded flow-diagram steps.
 
 ## Status / roadmap
 

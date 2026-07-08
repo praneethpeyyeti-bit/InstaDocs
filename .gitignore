@@ -1,0 +1,13 @@
+# Generated documentation output (CLI `--out`) — never commit sample deliverables.
+/out/
+
+# Scratch diagram-probe artifacts (see CLAUDE.md "Fast iteration pattern").
+/probe.cjs
+/out.png
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+
+# NOTE: node_modules/ and dist/ are intentionally COMMITTED in this repo so it
+# runs without a build — do NOT add them here.
