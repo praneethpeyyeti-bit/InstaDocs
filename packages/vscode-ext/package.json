@@ -2,7 +2,7 @@
   "name": "instadocs-vscode",
   "displayName": "InstaDocs",
   "description": "Generate a Solution Design Document + Test Case Document from an RPA/automation project.",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "publisher": "instadocs",
   "engines": {
     "vscode": "^1.85.0"
@@ -30,26 +30,6 @@
         "command": "instadocs.openPanel",
         "title": "Open Generator",
         "category": "InstaDocs"
-      },
-      {
-        "command": "instadocs.generateFromWorkspace",
-        "title": "Generate SDD + Test Cases",
-        "category": "InstaDocs"
-      },
-      {
-        "command": "instadocs.generateWithGateway",
-        "title": "Generate SDD + Test Cases (AI · UiPath LLM Gateway)",
-        "category": "InstaDocs"
-      },
-      {
-        "command": "instadocs.generateFromGitUrl",
-        "title": "Generate SDD + Test Cases from Git URL",
-        "category": "InstaDocs"
-      },
-      {
-        "command": "instadocs.setupGateway",
-        "title": "Set up Gateway (org / tenant / model)",
-        "category": "InstaDocs"
       }
     ],
     "menus": {
@@ -58,16 +38,6 @@
           "command": "instadocs.openPanel",
           "when": "explorerResourceIsFolder",
           "group": "instadocs@0"
-        },
-        {
-          "command": "instadocs.generateFromWorkspace",
-          "when": "explorerResourceIsFolder",
-          "group": "instadocs@1"
-        },
-        {
-          "command": "instadocs.generateWithGateway",
-          "when": "explorerResourceIsFolder",
-          "group": "instadocs@2"
         }
       ],
       "commandPalette": [
@@ -77,18 +47,6 @@
         },
         {
           "command": "instadocs.openPanel",
-          "when": "true"
-        },
-        {
-          "command": "instadocs.generateFromWorkspace",
-          "when": "workspaceFolderCount > 0"
-        },
-        {
-          "command": "instadocs.generateWithGateway",
-          "when": "workspaceFolderCount > 0"
-        },
-        {
-          "command": "instadocs.setupGateway",
           "when": "true"
         }
       ]

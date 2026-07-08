@@ -24,7 +24,8 @@ export function openWelcome(context: vscode.ExtensionContext): void {
         await vscode.commands.executeCommand('instadocs.openPanel');
         break;
       case 'setupGateway':
-        await vscode.commands.executeCommand('instadocs.setupGateway');
+        // Gateway config lives in Settings (and the panel's "Override config").
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'instadocs.gateway');
         break;
       case 'setStartup':
         await context.globalState.update(SHOW_ON_STARTUP, !!msg.value);
