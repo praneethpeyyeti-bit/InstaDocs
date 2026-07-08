@@ -1762,14 +1762,21 @@ function rasterizeLinear(title: string, steps: string[]): FlowchartImage {
  * Flowchart/Sequence projects render as a linear high-level flow.
  */
 export function renderPartitionedFlows(
-  flows: { project: string; steps: string[]; reframework?: boolean; stateMachine?: StateMachineIR }[]
+  flows: {
+    project: string;
+    steps: string[];
+    reframework?: boolean;
+    stateMachine?: StateMachineIR;
+    stateFlows?: { state: string; steps: string[] }[];
+  }[]
 ): FlowchartImage {
   const usable = flows.filter((f) => (f.stateMachine && f.stateMachine.states?.length) || f.steps.some((s) => s && s.trim()));
-  // One project's block: a code-derived state machine if we parsed one, else a
-  // REFramework state swimlane for a REFramework project, else a linear flow.
+  // One project's block: a code-derived state machine if we parsed one (with the
+  // analyzer's per-state business steps when available), else a REFramework state
+  // swimlane for a REFramework project, else a linear flow.
   const blockFor = (f: (typeof usable)[number]) =>
     f.stateMachine && f.stateMachine.states?.length
-      ? stateMachineBlock(f.project, f.stateMachine, PF_W)
+      ? stateMachineBlock(f.project, f.stateMachine, PF_W, undefined, stateStepsFromFlows(f.stateFlows))
       : f.reframework === false
       ? linearFlowBlock(f.project, f.steps, PF_W)
       : stateSwimlaneBlock(f.project, f.steps, PF_W);

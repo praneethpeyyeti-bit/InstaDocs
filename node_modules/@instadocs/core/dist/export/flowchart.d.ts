@@ -100,4 +100,8 @@ export declare function renderPartitionedFlows(flows: {
     steps: string[];
     reframework?: boolean;
     stateMachine?: StateMachineIR;
+    stateFlows?: {
+        state: string;
+        steps: string[];
+    }[];
 }[]): FlowchartImage;

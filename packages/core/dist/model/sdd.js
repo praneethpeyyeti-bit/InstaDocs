@@ -126,6 +126,10 @@ exports.SddModelSchema = zod_1.z.object({
         // The project's REAL parsed StateMachine, when it has one — drives a
         // code-derived state diagram for that project. Set from the graph.
         stateMachine: zod_1.z.any().optional(),
+        // For a REFramework project inside a solution: the LLM's per-state
+        // business sub-steps (same shape as top-level stateFlows), so its state
+        // swimlane reads as intent rather than raw activity names.
+        stateFlows: zod_1.z.array(zod_1.z.object({ state: zod_1.z.string(), steps: zod_1.z.array(zod_1.z.string()).default([]) })).optional(),
     }))
         .default([]),
     /**

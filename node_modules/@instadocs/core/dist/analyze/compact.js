@@ -72,21 +72,37 @@ function compactGraph(graph, maxNodes = 180) {
             if (dn && !/^(sequence|body|do|then|else|assign|log message|target|comment)$/i.test(dn))
                 byFile.get(f).push(dn);
         }
+        // Discovery "Key Workflows" purpose, keyed by workflow base name, so each
+        // state's invoked workflow can be labelled with what it actually does.
+        const purposeOf = new Map();
+        for (const kw of ctx?.keyWorkflows ?? []) {
+            const key = String(kw.workflow ?? '').split(/[\\/]/).pop()?.replace(/\.xaml$/i, '').toLowerCase() ?? '';
+            if (key && kw.purpose)
+                purposeOf.set(key, kw.purpose);
+        }
         lines.push('REFRAMEWORK STATES (use the EXACT state names below for stateFlows):');
         for (const st of graph.stateMachine.states) {
-            const wfs = st.steps;
+            const wfs = st.invokes && st.invokes.length ? st.invokes : st.steps; // raw invoked workflows
             const appsFor = new Set();
             const acts = [];
             for (const wf of wfs) {
                 for (const a of graph.workflowApps?.[wf.toLowerCase()] ?? [])
                     appsFor.add(a);
                 for (const dn of byFile.get(wf.toLowerCase()) ?? [])
-                    if (acts.length < 10 && /^(get|read|retrieve|extract|parse|calculate|build|validate|update|submit|create|send|download|upload|log ?in|login|open|go to|navigate|close)\b/i.test(dn))
+                    if (acts.length < 10 && /^(get|read|retrieve|extract|parse|calculate|build|validate|update|submit|create|send|download|upload|log ?in|login|open|go to|navigate|close|classify|categor|compose|write|lookup|reply)\b/i.test(dn))
                         acts.push(dn);
             }
-            lines.push(`  ${st.name}: invokes ${wfs.join(', ') || '(none)'}` +
+            // Name each invoked workflow with its discovery purpose, when known.
+            const wfLabels = wfs.map((wf) => {
+                const p = purposeOf.get(wf.toLowerCase());
+                return p ? `${wf} (${p})` : wf;
+            });
+            // Curated code-derived business actions (post-expand steps) as extra grounding.
+            const doesActs = st.steps.filter((s) => !wfs.some((w) => w.toLowerCase() === s.toLowerCase()));
+            lines.push(`  ${st.name}: invokes ${wfLabels.join(', ') || '(none)'}` +
                 (appsFor.size ? `; apps: ${[...appsFor].join(', ')}` : '') +
-                (acts.length ? `; activities: ${acts.slice(0, 8).join(' / ')}` : ''));
+                (acts.length ? `; activities: ${acts.slice(0, 8).join(' / ')}` : '') +
+                (doesActs.length ? `; does: ${doesActs.slice(0, 8).join(' / ')}` : ''));
         }
         lines.push('');
     }

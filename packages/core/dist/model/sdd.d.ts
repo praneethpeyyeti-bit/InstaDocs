@@ -124,16 +124,34 @@ export declare const SddModelSchema: z.ZodObject<{
         steps: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
         reframework: z.ZodOptional<z.ZodBoolean>;
         stateMachine: z.ZodOptional<z.ZodAny>;
+        stateFlows: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            state: z.ZodString;
+            steps: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+        }, "strip", z.ZodTypeAny, {
+            steps: string[];
+            state: string;
+        }, {
+            state: string;
+            steps?: string[] | undefined;
+        }>, "many">>;
     }, "strip", z.ZodTypeAny, {
         steps: string[];
         project: string;
         reframework?: boolean | undefined;
         stateMachine?: any;
+        stateFlows?: {
+            steps: string[];
+            state: string;
+        }[] | undefined;
     }, {
         project: string;
         steps?: string[] | undefined;
         reframework?: boolean | undefined;
         stateMachine?: any;
+        stateFlows?: {
+            state: string;
+            steps?: string[] | undefined;
+        }[] | undefined;
     }>, "many">>;
     /**
      * For a REFramework state-machine project: the real BUSINESS sub-steps of each
@@ -441,15 +459,19 @@ export declare const SddModelSchema: z.ZodObject<{
         aspect: string;
     }[];
     highLevelSteps: string[];
+    stateFlows: {
+        steps: string[];
+        state: string;
+    }[];
     projectFlows: {
         steps: string[];
         project: string;
         reframework?: boolean | undefined;
         stateMachine?: any;
-    }[];
-    stateFlows: {
-        steps: string[];
-        state: string;
+        stateFlows?: {
+            steps: string[];
+            state: string;
+        }[] | undefined;
     }[];
     revisions: {
         summary: string;
@@ -573,15 +595,19 @@ export declare const SddModelSchema: z.ZodObject<{
         aspect: string;
     }[] | undefined;
     highLevelSteps?: string[] | undefined;
+    stateFlows?: {
+        state: string;
+        steps?: string[] | undefined;
+    }[] | undefined;
     projectFlows?: {
         project: string;
         steps?: string[] | undefined;
         reframework?: boolean | undefined;
         stateMachine?: any;
-    }[] | undefined;
-    stateFlows?: {
-        state: string;
-        steps?: string[] | undefined;
+        stateFlows?: {
+            state: string;
+            steps?: string[] | undefined;
+        }[] | undefined;
     }[] | undefined;
     revisions?: {
         summary: string;

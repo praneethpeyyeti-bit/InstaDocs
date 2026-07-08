@@ -87,9 +87,10 @@ function fillSddDocx(model, graph, generatedOn, templatePath = defaultSddTemplat
         const steps = (0, flowchart_1.hasHighLevelSteps)(model.highLevelSteps)
             ? model.highLevelSteps
             : solutionFlows[0]?.steps ?? [];
-        // Per-state business sub-steps for a REFramework swimlane: prefer the
-        // analyzer's stateFlows; fall back to deterministic extraction from the code.
-        const stateSteps = (0, flowchart_1.stateStepsFromFlows)(model.stateFlows) ?? (0, flowchart_1.deriveStateSteps)(graph);
+        // Per-state business sub-steps: prefer the analyzer's LLM stateFlows; when
+        // absent, stateMachineBlock falls back to the parser's own curated per-state
+        // steps (graph.stateMachine.states[].steps from expandStateMachineSteps).
+        const stateSteps = (0, flowchart_1.stateStepsFromFlows)(model.stateFlows);
         // One centralized decision (renderEntryDiagram): state machine -> code-derived
         // state chart; REFramework -> state swimlane; Flowchart/Sequence -> high-level
         // technical flow. No per-project tuning.

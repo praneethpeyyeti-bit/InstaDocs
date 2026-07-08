@@ -136,7 +136,7 @@ function renderWelcome(webview: vscode.Webview, st: Status): string {
     <div class="hero">
       <div class="eyebrow"><span class="pip"></span>${signedLine} · READY TO GENERATE</div>
       <h1>Turn a UiPath project into<br><span class="b">a Solution Design Document.</span></h1>
-      <div class="lede">Point InstaDocs at a project folder or a Git repo. It reads the workflows, calls the UiPath LLM Gateway, and produces a branded <strong>SDD/ADD (Word)</strong> + <strong>Test Cases (Excel)</strong> — with architecture and REFramework-state diagrams.</div>
+      <div class="lede">Point InstaDocs at a project folder or a Git repo. It reads the workflows, calls the UiPath LLM Gateway, and produces a branded <strong>SDD/ADD (Word)</strong> + <strong>Test Cases (Excel)</strong> — with architecture and REFramework-state diagrams.<br><span style="opacity:.75">Tip: run the UiPath <strong>project-discovery</strong> agent first (creates <code>AGENTS.md</code>) for the sharpest, business-worded flow steps.</span></div>
       <div class="cta">
         <button class="btn" id="generate">＋ Generate documents</button>
         <button class="link" id="setup">${st.gatewayReady ? 'Gateway settings' : 'Set up Gateway'}</button>

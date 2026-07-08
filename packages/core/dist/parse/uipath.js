@@ -400,11 +400,13 @@ function parseStateMachine(file) {
             to: targetOf(t['Transition.To']) ?? '',
         }))
             .filter((t) => t.to);
+        const invokes = invokedWorkflows(s['State.Entry']);
         return {
             id,
             name: String(s['@_DisplayName'] ?? id).trim(),
             annotation: s['@_Annotation.AnnotationText'] ? String(s['@_Annotation.AnnotationText']).trim() : undefined,
-            steps: invokedWorkflows(s['State.Entry']),
+            steps: invokes.slice(),
+            invokes, // preserved for LLM grounding before `steps` is curated
             isFinal: transitions.length === 0,
             transitions,
         };

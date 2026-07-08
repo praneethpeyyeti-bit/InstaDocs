@@ -136,6 +136,13 @@ export interface StateNode {
     annotation?: string;
     /** Ordered activity labels inside the state (invoked workflows / key activities). */
     steps: string[];
+    /**
+     * The raw workflow base names this state's Entry invokes (e.g. Process,
+     * SetTransactionStatus), preserved before `steps` is rewritten into curated
+     * activities — used to attach each workflow's project-discovery purpose as
+     * grounding for the LLM's per-state business steps.
+     */
+    invokes?: string[];
     /** Whether this state is the final state (no outgoing transitions). */
     isFinal: boolean;
     transitions: StateTransition[];

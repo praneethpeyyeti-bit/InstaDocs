@@ -105,7 +105,7 @@ Guidance per field:
 
 Respond with ONLY a single JSON object matching the schema. No markdown, no commentary.`;
 const SCHEMA_HINT = [
-    'projectName, platformLabel, purpose, summary, architecture, architecturePoints:[{aspect,detail}], highLevelSteps:[string], projectFlows:[{project,steps:[string]}], stateFlows:[{state,steps:[string]}],',
+    'projectName, platformLabel, purpose, summary, architecture, architecturePoints:[{aspect,detail}], highLevelSteps:[string], projectFlows:[{project,steps:[string],stateFlows?:[{state,steps:[string]}]}], stateFlows:[{state,steps:[string]}],',
     'revisions:[{rev,date,role,summary,author}], contacts:[{role,name,email,org}], sourceDocuments:[{title,author,version,date}],',
     'systemsPrereq:[{system,requisite}], accessSettings:[{system,detail,level,method}], robotInfo:[{item,desc}],',
     'processes:[{name,folderPath,description}], triggers:[{process,type,recurrence,folderPath,notes}], queues:[{name,folderPath,details}],',
@@ -216,6 +216,7 @@ async function enrichSddSolution(solutionName, projects, merged, options = {}) {
         `This is a MULTI-PROJECT solution with ${projects.length} projects: ${projects.map((p) => p.name).join(', ')}.`,
         'Produce ONE solution-level SDD covering all projects. Set projectName to the solution name.',
         'Leave top-level highLevelSteps EMPTY and instead fill projectFlows with one entry per project (project = its name, steps = its high-level business steps).',
+        'For any project whose evidence has a "REFRAMEWORK STATES" section, ALSO fill that project\'s projectFlows entry with a "stateFlows" array — one entry per state, using the EXACT state names listed, each with 2-6 SHORT business steps (≤6 words) describing what that state ACTUALLY DOES, grounded in that state\'s invoked workflows (and their purpose), apps and activities from the evidence. Do NOT restate workflow file names or generic plumbing. Leave stateFlows off for non-REFramework projects.',
         'Combine dependencies, modules and exceptions across all projects.',
         `For testScenarios: provide coverage for EACH project and set every scenario's "project" field to the exact project name it tests (one of: ${projects.map((p) => p.name).join(', ')}). Give each project its own happy-path, branch and exception cases.`,
         '',
