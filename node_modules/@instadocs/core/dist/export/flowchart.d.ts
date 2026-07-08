@@ -27,7 +27,7 @@ export declare function businessLabel(text: string): string;
  * `steps` are the project's high-level business steps (LLM or derived); only the
  * REFramework-without-a-parsed-machine branch needs them.
  */
-export declare function renderEntryDiagram(projectName: string, graph: ProcessGraph, steps?: string[]): FlowchartImage;
+export declare function renderEntryDiagram(projectName: string, graph: ProcessGraph, steps?: string[], stateSteps?: Record<string, string[]>): FlowchartImage;
 /** True when the project is built on the UiPath REFramework (state machine). */
 export declare function isReframework(graph: ProcessGraph): boolean;
 /**
@@ -74,8 +74,20 @@ export declare function renderHighLevelFlow(title: string, stepsIn: string[]): F
  * readable alternative to a per-activity flowchart full of datatype noise.
  */
 export declare function renderTechnicalFlow(title: string, graph: ProcessGraph): FlowchartImage;
+/** Map analyzer `stateFlows` ({state, steps}) to the renderer's per-state map. */
+export declare function stateStepsFromFlows(flows: {
+    state: string;
+    steps: string[];
+}[] | undefined): Record<string, string[]> | undefined;
+/**
+ * Deterministic fallback for per-state business steps (no LLM): pull each state's
+ * meaningful activities straight from its invoked workflows' parsed nodes. Less
+ * polished than the analyzer's phrasing, but keeps the diagram informative when
+ * the Gateway isn't available. Keyed by normalised state name.
+ */
+export declare function deriveStateSteps(graph: ProcessGraph): Record<string, string[]>;
 /** Render the real parsed state machine of a project as a diagram. */
-export declare function renderStateMachine(title: string, sm: StateMachineIR): FlowchartImage;
+export declare function renderStateMachine(title: string, sm: StateMachineIR, apps?: Record<string, string[]>, stateSteps?: Record<string, string[]>): FlowchartImage;
 /** One REFramework project's high-level flow as a 4-column state swimlane. */
 export declare function renderPartitionedFlow(title: string, steps: string[]): FlowchartImage;
 /**

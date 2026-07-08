@@ -136,7 +136,57 @@ async function parseUiPath(workingDir) {
     catch {
         /* non-fatal */
     }
+    // Deepen the state machine: replace each state's invoked-workflow NAMES with
+    // the real sub-steps those workflows perform (so two REFramework projects that
+    // share the skeleton — e.g. a dispatcher vs a performer — differ by what their
+    // Process/Init workflows actually do, not just identical framework file names).
+    if (graph.stateMachine)
+        expandStateMachineSteps(graph);
     return graph;
+}
+/** Base workflow name (no path, no extension), lower-cased. */
+function wfBase(p) {
+    return String(p || '').split(/[\\/]/).pop().replace(/\.xaml$/i, '');
+}
+/**
+ * For each state, expand its invoked-workflow steps into the workflows THEY
+ * invoke, one level deep — surfacing the real business sub-steps (e.g. Process ->
+ * OpenWorkItemDetails, GenerateSHA1Hash, UpdateWorkItem). Falls back to the
+ * workflow's own name when it has no meaningful sub-invocations or isn't present.
+ */
+const REFRAMEWORK_PLUMBING = /^(gettransactiondata|settransactionstatus|initallsettings|initallapplications|closeallapplications|killallprocesses|process|retrycurrenttransaction|takescreenshot)$/i;
+function expandStateMachineSteps(graph) {
+    const sm = graph.stateMachine;
+    if (!sm)
+        return;
+    const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+    // Map each workflow file -> the base names of the workflows it invokes.
+    const invokesByFile = new Map();
+    for (const inv of graph.invocations) {
+        const host = inv.nodeId ? nodeById.get(inv.nodeId) : undefined;
+        const hostBase = wfBase(String(host?.raw?.file ?? '')).toLowerCase();
+        const target = wfBase(inv.target);
+        if (!hostBase || !target || /^unknown$/i.test(target))
+            continue;
+        const arr = invokesByFile.get(hostBase) ?? [];
+        if (!arr.some((x) => x.toLowerCase() === target.toLowerCase()))
+            arr.push(target);
+        invokesByFile.set(hostBase, arr);
+    }
+    for (const st of sm.states) {
+        const expanded = [];
+        for (const step of st.steps) {
+            // Expand into the BUSINESS workflows this step invokes (drop framework
+            // plumbing); if it invokes none, keep the step's own name.
+            const subs = (invokesByFile.get(step.toLowerCase()) ?? []).filter((t) => !REFRAMEWORK_PLUMBING.test(t));
+            if (subs.length)
+                expanded.push(...subs);
+            else
+                expanded.push(step);
+        }
+        const seen = new Set();
+        st.steps = expanded.filter((s) => (seen.has(s.toLowerCase()) ? false : (seen.add(s.toLowerCase()), true))).slice(0, 6);
+    }
 }
 function readProjectName(workingDir) {
     const pj = path.join(workingDir, 'project.json');

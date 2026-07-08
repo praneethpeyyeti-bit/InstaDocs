@@ -131,6 +131,17 @@ export const SddModelSchema = z.object({
       })
     )
     .default([]),
+  /**
+   * For a REFramework state-machine project: the real BUSINESS sub-steps of each
+   * state (Initialization / Get Transaction Data / Process Transaction / End
+   * Process), so each swimlane lane shows what the state actually does — "Read
+   * config workbook", "Retrieve Orchestrator assets", "Log in to <app>" — instead
+   * of just the invoked workflow file names. Filled by the analyzer from each
+   * state's real activities + applications. Empty for non-REFramework projects.
+   */
+  stateFlows: z
+    .array(z.object({ state: z.string(), steps: z.array(z.string()).default([]) }))
+    .default([]),
 
   revisions: z.array(Revision).default([]),
   contacts: z.array(Contact).default([]),

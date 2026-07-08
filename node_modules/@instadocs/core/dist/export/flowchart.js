@@ -11,6 +11,8 @@ exports.renderProcessFlow = renderProcessFlow;
 exports.hasHighLevelSteps = hasHighLevelSteps;
 exports.renderHighLevelFlow = renderHighLevelFlow;
 exports.renderTechnicalFlow = renderTechnicalFlow;
+exports.stateStepsFromFlows = stateStepsFromFlows;
+exports.deriveStateSteps = deriveStateSteps;
 exports.renderStateMachine = renderStateMachine;
 exports.renderPartitionedFlow = renderPartitionedFlow;
 exports.renderPartitionedFlows = renderPartitionedFlows;
@@ -80,14 +82,18 @@ function esc(s) {
  * `steps` are the project's high-level business steps (LLM or derived); only the
  * REFramework-without-a-parsed-machine branch needs them.
  */
-function renderEntryDiagram(projectName, graph, steps = []) {
+function renderEntryDiagram(projectName, graph, steps = [], stateSteps) {
     if (graph.stateMachine && graph.stateMachine.states.length) {
-        return renderStateMachine(projectName, graph.stateMachine);
+        return renderStateMachine(projectName, graph.stateMachine, graph.workflowApps, stateSteps);
     }
     const reframework = graph.layout === 'statemachine' || (!graph.layout && isReframework(graph));
     if (reframework) {
         return steps.some((s) => s && s.trim()) ? renderPartitionedFlow(projectName, steps) : renderReframeworkStates();
     }
+    // Non-REFramework (linear / flowchart): prefer the concise, business-level
+    // high-level steps (from the analyzer) over an activity-by-activity dump.
+    if (hasHighLevelSteps(steps))
+        return renderHighLevelFlow(projectName, steps);
     return renderTechnicalFlow(projectName, graph);
 }
 /** True when the project is built on the UiPath REFramework (state machine). */
@@ -795,6 +801,8 @@ const TECH_STYLE = {
 const TECH_DROP = new Set([
     'Sequence', 'Do', 'Body', 'Catch', 'Target', 'TargetApp', 'TargetAnchorable',
     'AssignOperation', 'Target appears', 'Target does not appear', 'TargetControl',
+    // WPF/view-state value types that occasionally leak through as bogus steps.
+    'PointOffset', 'Point', 'Size', 'Rect', 'Region', 'Position', 'Padding', 'Margin',
 ]);
 function techCategory(n) {
     const name = n.displayName;
@@ -1002,6 +1010,82 @@ function cleanCondition(c) {
 function isExceptionTransition(name, _condition) {
     return /exception|no data|failed|error|abort|retry/i.test(name);
 }
+/** Normalise a state name for matching analyzer-provided per-state steps. */
+function normState(s) {
+    return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+/** Map analyzer `stateFlows` ({state, steps}) to the renderer's per-state map. */
+function stateStepsFromFlows(flows) {
+    if (!flows?.length)
+        return undefined;
+    const out = {};
+    for (const f of flows)
+        if (f.state && f.steps?.length)
+            out[normState(f.state)] = f.steps;
+    return Object.keys(out).length ? out : undefined;
+}
+/** Canonicalise common REFramework activity names so near-duplicates collapse. */
+function canonicalStep(s) {
+    if (/get.*asset|asset.*orchestrator|orchestrator asset/i.test(s))
+        return 'Retrieve Orchestrator assets';
+    if (/parse client|client (id|name|country|information)/i.test(s))
+        return 'Parse client details';
+    if (/(local )?settings and constants|read config|get.*config/i.test(s))
+        return 'Read config settings';
+    if (/read range/i.test(s))
+        return 'Read config settings';
+    if (/get.*credential/i.test(s))
+        return 'Get credential from Orchestrator';
+    return s;
+}
+// Business verbs kept / dropped when deriving per-state steps deterministically.
+const STEP_KEEP = /^(get|read|retrieve|extract|parse|calculate|build|validate|update|submit|create|send|download|upload|log ?in|login|sign ?in|open|go to|navigate|close)\b/i;
+const STEP_DROP = /^(type|click|check|set text|select |hover|send hotkey|get attribute|target|do$|body|sequence|assign|comment|for each|if |then|else|log message|log -|log$|throw|rethrow|add config|initiali[sz]e all)/i;
+/**
+ * Deterministic fallback for per-state business steps (no LLM): pull each state's
+ * meaningful activities straight from its invoked workflows' parsed nodes. Less
+ * polished than the analyzer's phrasing, but keeps the diagram informative when
+ * the Gateway isn't available. Keyed by normalised state name.
+ */
+function deriveStateSteps(graph) {
+    const sm = graph.stateMachine;
+    if (!sm?.states?.length)
+        return {};
+    const byFile = new Map();
+    for (const n of graph.nodes) {
+        const f = String(n.raw?.file ?? '').split(/[\\/]/).pop()?.replace(/\.xaml$/i, '').toLowerCase() ?? '';
+        if (!f)
+            continue;
+        if (!byFile.has(f))
+            byFile.set(f, []);
+        byFile.get(f).push(n);
+    }
+    const out = {};
+    for (const st of sm.states) {
+        const seen = new Set();
+        const steps = [];
+        for (const wf of st.steps) {
+            for (const n of byFile.get(wf.toLowerCase()) ?? []) {
+                const dn = (n.displayName || '').trim();
+                if (!dn || STEP_DROP.test(dn) || !(STEP_KEEP.test(dn) || n.kind === 'invoke'))
+                    continue;
+                const label = canonicalStep(humanizeStep(dn.replace(/\s*\([^)]*\)\s*$/, '')).trim());
+                const key = label.toLowerCase();
+                if (label.length < 3 || seen.has(key))
+                    continue;
+                seen.add(key);
+                steps.push(label.length > 32 ? label.slice(0, 31) + '…' : label);
+                if (steps.length >= 6)
+                    break;
+            }
+            if (steps.length >= 6)
+                break;
+        }
+        if (steps.length)
+            out[normState(st.name)] = steps;
+    }
+    return out;
+}
 /** Short unique code for each state, used on off-page connectors (e.g. GTD, PT, EP). */
 function stateCodes(states) {
     const out = {};
@@ -1041,113 +1125,232 @@ function orderStates(sm) {
     rest.sort((a, b) => Number(a.isFinal) - Number(b.isFinal)); // finals last
     return [...chain, ...rest];
 }
+/** A transition target that lands on a genuine business/system exception path. */
+function isBusinessExc(t) {
+    return /business ?exception|businessrule/i.test(`${t.name} ${t.condition ?? ''}`);
+}
+function isSystemExc(t) {
+    return /system ?exception|\bfailed\b|\berror\b|\babort\b/i.test(`${t.name} ${t.condition ?? ''}`);
+}
+/** Short, non-overlapping label for a branch exit arrow. */
+function shortBranch(t) {
+    if (isBusinessExc(t))
+        return 'Bus Exc';
+    if (isSystemExc(t))
+        return 'Sys Exc';
+    if (/no ?data/i.test(`${t.name} ${t.condition ?? ''}`))
+        return 'No Data';
+    return 'NO';
+}
 /**
- * SVG for the REAL state machine as a lane-per-state chart. Each lane shows the
- * state's actual invoked workflows as process boxes, a START terminator on the
- * initial state and an END terminator on the final state, and every real
- * transition as a labelled exit to an off-page connector carrying the target
- * state's code (exception/no-data branches in red). Returns the SVG + height.
+ * A concise decision question for a state, derived from the guard conditions of
+ * its real transitions. Returns up to two lines (split on '|'). Generic — falls
+ * back to the state name so it works for any state machine, not just REFramework.
  */
-function stateMachineBlock(title, sm, w) {
+function decisionQuestion(s) {
+    const g = s.transitions.map((t) => `${t.name} ${t.condition ?? ''}`).join(' ').toLowerCase();
+    const isInit = s.steps.some((st) => /initall|init all|initiali|open applic|launch|config|setting/i.test(st));
+    if (/transactionitem|new transaction|no data|dequeue|queue ?item|next (item|transaction)/.test(g))
+        return 'New transaction|available?';
+    if (isInit && /(system)?exception|failed|error/.test(g))
+        return 'Initialised|successfully?';
+    if (/businessexception|systemexception|exception|failed|error/.test(g))
+        return 'Processed|successfully?';
+    const nm = humanizeStep(s.name);
+    return nm.length > 16 ? `${nm}|complete?` : `${nm} complete?`;
+}
+/** Two centred text lines for a diamond label (split on '|'). */
+function diamondLabel(cx, cy, label, maxChars) {
+    const lines = label.split('|');
+    if (lines.length === 1)
+        return wrapTspans(label, cx, cy - 2, maxChars, 12, 2, 10.5, '#12212E', '700');
+    return (`<text x="${cx}" y="${cy - 4}" fill="#12212E" font-size="10.5" font-weight="700" text-anchor="middle">${esc(lines[0])}</text>` +
+        `<text x="${cx}" y="${cy + 9}" fill="#12212E" font-size="10.5" font-weight="700" text-anchor="middle">${esc(lines[1])}</text>`);
+}
+/**
+ * SVG for the REAL state machine as a reference-quality REFramework swimlane.
+ * Each state is a lane with: a START terminator (initial) or an entry connector,
+ * its actual invoked-workflow boxes, then — when the state branches — a decision
+ * DIAMOND derived from the real guard conditions. The diamond's happy path exits
+ * downward (YES) to an off-page connector carrying the target state's code, and
+ * every exception path exits to the side (NO) to a red connector tagged SE#/BE#.
+ * A system-exception loop back to an earlier state is drawn as a dashed Retry.
+ * The final state ends in an END terminator. Entirely code-derived — no template.
+ */
+function stateMachineBlock(title, sm, w, apps, stateSteps) {
     const ordered = orderStates(sm);
     const codes = stateCodes(ordered);
+    const orderIdx = {};
+    ordered.forEach((s, i) => (orderIdx[s.id] = i));
     const N = Math.max(1, ordered.length);
-    const pad = 8;
-    const titleH = 26;
-    const headerH = 30;
+    const pad = 10;
+    const titleH = 30;
+    const headerH = 32;
     const colW = (w - 2 * pad) / N;
-    const bodyTop = titleH + headerH + 20;
-    const bw = colW * 0.6;
-    const boxGap = 20;
-    const rowGap = 40; // per outgoing-transition row
+    const bodyTop = titleH + headerH + 30;
+    const bw = colW * 0.66;
+    const boxH = 46;
+    const boxGap = 22;
+    const dW = colW * 0.62; // diamond width
+    const dH = 66;
     const palette = ['#2E7D32', '#1565C0', '#6A1B9A', '#B00020', '#00695C', '#4527A0', '#37474F'];
+    const LANE_TINT = ['#F1F8F2', '#EEF4FC', '#F5F0FA', '#FCEFF1', '#EEF6F5', '#F0EEFA', '#EFF1F3'];
+    const INK = '#33475B';
     const parts = [];
-    // Title band + per-state headers.
-    parts.push(`<rect x="${pad}" y="0" width="${w - 2 * pad}" height="${titleH}" rx="4" fill="#263238"/>`);
-    parts.push(`<text x="${w / 2}" y="${titleH / 2 + 5}" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">${esc(title)} — state machine (from code)</text>`);
+    // Running exception-tag counters (SE#1, SE#2… / BE#1, BE#2…) across the whole chart.
+    let seN = 0;
+    let beN = 0;
+    const excTag = (t) => isBusinessExc(t) ? `BE#${++beN}` : isSystemExc(t) ? `SE#${++seN}` : undefined;
+    // ---- Title band ----
+    parts.push(`<rect x="${pad}" y="0" width="${w - 2 * pad}" height="${titleH}" rx="6" fill="#1F2A37"/>`);
+    parts.push(`<text x="${w / 2}" y="${titleH / 2 + 5}" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">${esc(title)} — REFramework state machine (from code)</text>`);
+    // ---- Lane tints + headers ----
     ordered.forEach((s, i) => {
         const x = pad + i * colW;
         const color = palette[i % palette.length];
-        parts.push(`<rect x="${x + 2}" y="${titleH + 3}" width="${colW - 4}" height="${headerH - 4}" rx="4" fill="${color}"/>`);
-        parts.push(wrapTspans(`${s.name}`, x + colW / 2, titleH + (s.name.length > 18 ? headerH / 2 : headerH / 2 + 4), Math.floor((colW - 12) / 6), 11, 2, 10.5, '#fff', '700'));
+        parts.push(`<rect x="${x}" y="${titleH + 6}" width="${colW}" height="${headerH}" rx="6" fill="${color}"/>`);
+        parts.push(wrapTspans(`${s.name}`, x + colW / 2, titleH + 6 + (s.name.length > 18 ? headerH / 2 - 2 : headerH / 2 + 4), Math.floor((colW - 14) / 6), 11, 2, 11, '#fff', '700'));
     });
-    const drawConn = (px, py, code, color) => {
-        parts.push(`<ellipse cx="${px}" cy="${py}" rx="18" ry="14" fill="${color}"/>`);
+    const drawConn = (px, py, code, exc) => {
+        parts.push(`<ellipse cx="${px}" cy="${py}" rx="16" ry="14" fill="${exc ? '#B00020' : '#5B6B7B'}"/>`);
         parts.push(`<text x="${px}" y="${py + 4}" fill="#fff" font-size="10.5" font-weight="700" text-anchor="middle">${esc(code)}</text>`);
     };
+    const arrow = (x1, y1, x2, y2, stroke = INK, width = 1.5, dashed = false) => parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" ${dashed ? 'stroke-dasharray="5 4"' : ''} marker-end="url(#pfarrow)"/>`);
     let maxBottom = bodyTop;
     ordered.forEach((s, i) => {
         const laneX = pad + i * colW;
-        const cx = laneX + colW * 0.42;
+        const cx = laneX + colW / 2;
         const color = palette[i % palette.length];
         let y = bodyTop;
-        const spineTop = y;
-        // Top marker: START on the initial state, else this state's own entry connector.
+        // Entry: START terminator on the initial state, else the state's own arrival connector.
         if (s.id === sm.initial) {
-            parts.push(`<rect x="${cx - 44}" y="${y}" width="88" height="30" rx="15" fill="${color}"/>`);
-            parts.push(`<text x="${cx}" y="${y + 20}" fill="#fff" font-size="12.5" font-weight="700" text-anchor="middle">Start</text>`);
+            parts.push(`<rect x="${cx - 48}" y="${y}" width="96" height="32" rx="16" fill="${color}"/>`);
+            parts.push(`<text x="${cx}" y="${y + 21}" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">Start</text>`);
         }
         else {
-            drawConn(cx, y + 15, codes[s.id], '#4A5B6B');
+            drawConn(cx, y + 16, codes[s.id], false);
         }
-        let prevBottom = y + 30;
-        y += 30 + boxGap;
-        // Real invoked-workflow boxes.
-        const steps = s.steps.length ? s.steps : ['(no invoked workflows)'];
-        steps.slice(0, 8).forEach((st) => {
-            const h = 44;
-            parts.push(`<line x1="${cx}" y1="${prevBottom}" x2="${cx}" y2="${y - 2}" stroke="#607D8B" stroke-width="1.4" marker-end="url(#pfarrow)"/>`);
-            parts.push(`<rect x="${cx - bw / 2}" y="${y}" width="${bw}" height="${h}" rx="6" fill="#F4F6F8" stroke="${color}" stroke-width="1.1"/>`);
-            parts.push(wrapTspans(humanizeStep(st), cx, y + h / 2 - 3, Math.floor((bw - 12) / 5.6), 12, 3, 10, '#12212E', '500'));
-            prevBottom = y + h;
-            y += h + boxGap;
-        });
-        // Outgoing transitions: each real transition drawn as a labelled exit to an
-        // off-page connector carrying the target state's code. Labels are left-
-        // aligned across the column; the connector sits at the far right edge.
-        if (s.transitions.length) {
-            const labelX = laneX + 12;
-            const cpx = laneX + colW - 22;
-            const maxChars = Math.max(10, Math.floor((cpx - 22 - labelX) / 5.3));
-            s.transitions.forEach((t) => {
-                const rowY = y + 8;
-                const exc = isExceptionTransition(t.name, t.condition);
-                const stroke = exc ? '#B00020' : color;
-                parts.push(`<line x1="${cx}" y1="${prevBottom}" x2="${cx}" y2="${rowY}" stroke="#607D8B" stroke-width="1.3"/>`);
-                parts.push(`<text x="${labelX}" y="${rowY - 6}" fill="${exc ? '#B00020' : '#33475B'}" font-size="9.3" font-weight="700">${esc(truncate(t.name, maxChars))}</text>`);
-                parts.push(`<line x1="${cx}" y1="${rowY}" x2="${cpx - 18}" y2="${rowY}" stroke="${stroke}" stroke-width="1.4" marker-end="url(#pfarrow)"/>`);
-                const cond = cleanCondition(t.condition);
-                if (cond)
-                    parts.push(`<text x="${labelX}" y="${rowY + 12}" fill="#8493A0" font-size="8">${esc(truncate(cond, maxChars + 4))}</text>`);
-                drawConn(cpx, rowY, codes[t.to] ?? '?', exc ? '#B00020' : '#4A5B6B');
-                prevBottom = rowY + 12;
-                y = rowY + rowGap;
+        let prevBottom = y + 32;
+        y += 32 + boxGap;
+        // Business sub-steps for this state (from the analyzer / discovery) drive the
+        // lane when available — each box is a real thing the state DOES ("Read config
+        // file", "Retrieve Orchestrator assets", "Log in to ACME System1"). Otherwise
+        // fall back to one box per invoked workflow, labelled with the app it uses.
+        const biz = stateSteps?.[normState(s.name)] ?? [];
+        if (biz.length) {
+            biz.slice(0, 7).forEach((label) => {
+                const perLine = Math.floor((bw - 14) / 5.0);
+                const twoLine = label.length > perLine;
+                const h = twoLine ? 42 : 30;
+                arrow(cx, prevBottom, cx, y - 2, INK, 1.4);
+                parts.push(`<rect x="${cx - bw / 2}" y="${y}" width="${bw}" height="${h}" rx="6" fill="#FFFFFF" stroke="${color}" stroke-width="1.3"/>`);
+                parts.push(`<rect x="${cx - bw / 2}" y="${y}" width="5" height="${h}" rx="2.5" fill="${color}"/>`);
+                parts.push(wrapTspans(label, cx + 3, y + (twoLine ? h / 2 - 6 : h / 2 + 1), perLine, 11, 2, 9.5, '#12212E', '600'));
+                prevBottom = y + h;
+                y += h + 12;
             });
         }
-        // END terminator on a final state.
-        if (s.isFinal) {
-            parts.push(`<line x1="${cx}" y1="${prevBottom}" x2="${cx}" y2="${y - 2}" stroke="#607D8B" stroke-width="1.4" marker-end="url(#pfarrow)"/>`);
-            parts.push(`<rect x="${cx - 44}" y="${y}" width="88" height="30" rx="15" fill="#B00020"/>`);
-            parts.push(`<text x="${cx}" y="${y + 20}" fill="#fff" font-size="12.5" font-weight="700" text-anchor="middle">END</text>`);
-            y += 30 + boxGap;
+        else {
+            const steps = s.steps.length ? s.steps : ['(no invoked workflows)'];
+            steps.slice(0, 8).forEach((st) => {
+                const used = apps?.[st.toLowerCase()] ?? [];
+                const h = used.length ? boxH + 16 : boxH;
+                arrow(cx, prevBottom, cx, y - 2, INK, 1.5);
+                parts.push(`<rect x="${cx - bw / 2}" y="${y}" width="${bw}" height="${h}" rx="7" fill="#FFFFFF" stroke="${color}" stroke-width="1.4"/>`);
+                parts.push(`<rect x="${cx - bw / 2}" y="${y}" width="5" height="${h}" rx="2.5" fill="${color}"/>`);
+                if (used.length) {
+                    parts.push(wrapTspans(humanizeStep(st), cx + 3, y + 17, Math.floor((bw - 16) / 5.6), 12, 2, 10.5, '#12212E', '700'));
+                    parts.push(`<text x="${cx + 3}" y="${y + h - 11}" fill="${color}" font-size="8.5" font-weight="600" text-anchor="middle">${esc(truncate(used.join(' · '), Math.floor((bw - 12) / 4.6)))}</text>`);
+                }
+                else {
+                    parts.push(wrapTspans(humanizeStep(st), cx + 3, y + h / 2 - 2, Math.floor((bw - 16) / 5.6), 12, 2, 10.5, '#12212E', '600'));
+                }
+                prevBottom = y + h;
+                y += h + boxGap;
+            });
         }
-        void spineTop;
+        // Branching → decision diamond derived from the real transitions.
+        const exits = s.transitions.filter((t) => codes[t.to]); // only wired transitions
+        const excExits = exits.filter((t) => isExceptionTransition(t.name, t.condition));
+        const happy = exits.filter((t) => !isExceptionTransition(t.name, t.condition));
+        // The "primary" forward exit: the happy path (prefer the one that advances
+        // to the next-ordered state; else the first happy; else the first exit).
+        const primary = happy.find((t) => orderIdx[t.to] === i + 1) ??
+            happy[0] ??
+            exits[0];
+        void excExits;
+        if (exits.length) {
+            const dcy = y + dH / 2;
+            arrow(cx, prevBottom, cx, y - 2, INK, 1.5);
+            // Diamond.
+            parts.push(`<polygon points="${cx},${dcy - dH / 2} ${cx + dW / 2},${dcy} ${cx},${dcy + dH / 2} ${cx - dW / 2},${dcy}" fill="#DCE9F9" stroke="${color}" stroke-width="1.5"/>`);
+            parts.push(diamondLabel(cx, dcy, decisionQuestion(s), Math.floor((dW - 14) / 5.2)));
+            prevBottom = dcy + dH / 2;
+            // Side (exception / alternate) exits — a clean vertical bus off the right
+            // vertex, one arrow per exit, well staggered so labels/tags never collide.
+            const others = exits.filter((t) => t !== primary);
+            const connX = laneX + colW - 26;
+            const busX = cx + dW / 2;
+            const STAG = 60;
+            if (others.length > 1)
+                parts.push(`<line x1="${busX}" y1="${dcy}" x2="${busX}" y2="${dcy + (others.length - 1) * STAG}" stroke="${INK}" stroke-width="1.3"/>`);
+            let lowestSide = dcy;
+            others.forEach((t, k) => {
+                const ry = dcy + k * STAG;
+                const exc = isSystemExc(t) || isBusinessExc(t);
+                const tag = excTag(t);
+                arrow(busX + 2, ry, connX - 15, ry, exc ? '#B00020' : INK, 1.5);
+                // Label ABOVE the connector (the lane is too narrow to fit it beside the arrow).
+                parts.push(`<text x="${connX}" y="${ry - 17}" fill="${exc ? '#B00020' : INK}" font-size="9" font-weight="700" text-anchor="middle">${esc(shortBranch(t))}</text>`);
+                drawConn(connX, ry, codes[t.to] ?? '?', exc);
+                if (tag)
+                    parts.push(`<text x="${connX}" y="${ry + 26}" fill="#B00020" font-size="9.5" font-weight="700" text-anchor="middle">${esc(tag)}</text>`);
+                lowestSide = ry + (tag ? 28 : 15);
+            });
+            // Primary (YES / happy) exit straight down, below the side exits.
+            if (primary && !s.isFinal) {
+                const yesCy = Math.max(dcy + dH / 2 + 34, lowestSide + 22);
+                arrow(cx, prevBottom, cx, yesCy - 14, INK, 1.6);
+                parts.push(`<text x="${cx + 11}" y="${prevBottom + 16}" fill="${INK}" font-size="9.5" font-weight="700">YES</text>`);
+                drawConn(cx, yesCy, codes[primary.to] ?? '?', false);
+                prevBottom = yesCy + 14;
+                y = yesCy + 14 + boxGap;
+            }
+            else {
+                y = Math.max(dcy + dH / 2 + boxGap, lowestSide + boxGap);
+            }
+            maxBottom = Math.max(maxBottom, lowestSide, y);
+        }
+        // END terminator on the final state.
+        if (s.isFinal) {
+            arrow(cx, prevBottom, cx, y - 2, INK, 1.6);
+            parts.push(`<rect x="${cx - 48}" y="${y}" width="96" height="32" rx="16" fill="#B00020"/>`);
+            parts.push(`<text x="${cx}" y="${y + 21}" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">END</text>`);
+            y += 32 + boxGap;
+        }
         maxBottom = Math.max(maxBottom, y);
     });
-    // Divider lines + a code legend so the connectors are self-explanatory.
-    const legendY = maxBottom + 4;
-    const legend = ordered.map((s) => `${codes[s.id]} = ${s.name}`).join('    ·    ');
-    parts.push(`<text x="${w / 2}" y="${legendY + 8}" fill="#78909C" font-size="9.5" text-anchor="middle">${esc(legend)}</text>`);
-    const H = legendY + 18;
+    // ---- Lane tint backgrounds (drawn first, so behind everything) ----
+    const laneBg = [];
+    ordered.forEach((_, i) => {
+        const x = pad + i * colW;
+        laneBg.push(`<rect x="${x}" y="${titleH + 6}" width="${colW}" height="${maxBottom - titleH - 6}" fill="${LANE_TINT[i % LANE_TINT.length]}"/>`);
+    });
+    // Lane dividers.
     for (let i = 1; i < N; i++) {
         const x = pad + i * colW;
-        parts.push(`<line x1="${x}" y1="${titleH + 2}" x2="${x}" y2="${maxBottom - 2}" stroke="#CFD8DC" stroke-width="1"/>`);
+        laneBg.push(`<line x1="${x}" y1="${titleH + 6}" x2="${x}" y2="${maxBottom - 4}" stroke="#D3DCE3" stroke-width="1"/>`);
     }
-    return { svg: parts.join(''), height: H };
+    // ---- Legend ----
+    const legendY = maxBottom + 6;
+    const legend = ordered.map((s) => `${codes[s.id]} = ${s.name}`).join('    ·    ');
+    parts.push(`<text x="${w / 2}" y="${legendY + 9}" fill="#78909C" font-size="9.5" text-anchor="middle">${esc(legend)}</text>`);
+    const H = legendY + 20;
+    return { svg: laneBg.join('') + parts.join(''), height: H };
 }
 /** Render the real parsed state machine of a project as a diagram. */
-function renderStateMachine(title, sm) {
-    const block = stateMachineBlock(title, sm, PF_W);
+function renderStateMachine(title, sm, apps, stateSteps) {
+    const block = stateMachineBlock(title, sm, PF_W, apps, stateSteps);
     const h = block.height + 20;
     return rasterize(svgDoc(PF_W, h, `<g transform="translate(0,12)">${block.svg}</g>`), PF_W, h);
 }

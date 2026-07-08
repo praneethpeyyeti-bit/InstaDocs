@@ -3,7 +3,7 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { SddModel } from '../model/sdd';
 import { ProcessGraph } from '../model/ir';
-import { renderArchitecture, renderEntryDiagram, renderPartitionedFlows, hasHighLevelSteps, ArchSystem } from './flowchart';
+import { renderArchitecture, renderEntryDiagram, renderPartitionedFlows, hasHighLevelSteps, stateStepsFromFlows, deriveStateSteps, ArchSystem } from './flowchart';
 import { resolveAsset } from './assets';
 
 const FLOWCHART_MARKER = 'INSTADOCS_FLOWCHART_MAIN';
@@ -60,10 +60,13 @@ export function fillSddDocx(
     const steps = hasHighLevelSteps(model.highLevelSteps)
       ? model.highLevelSteps
       : solutionFlows[0]?.steps ?? [];
+    // Per-state business sub-steps for a REFramework swimlane: prefer the
+    // analyzer's stateFlows; fall back to deterministic extraction from the code.
+    const stateSteps = stateStepsFromFlows(model.stateFlows) ?? deriveStateSteps(graph);
     // One centralized decision (renderEntryDiagram): state machine -> code-derived
     // state chart; REFramework -> state swimlane; Flowchart/Sequence -> high-level
     // technical flow. No per-project tuning.
-    const single = renderEntryDiagram(model.projectName, graph, steps);
+    const single = renderEntryDiagram(model.projectName, graph, steps, stateSteps);
     embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', single, 9001);
   }
   // The per-process high-level flow section is not required (single or multi).

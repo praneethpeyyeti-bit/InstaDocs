@@ -87,10 +87,13 @@ function fillSddDocx(model, graph, generatedOn, templatePath = defaultSddTemplat
         const steps = (0, flowchart_1.hasHighLevelSteps)(model.highLevelSteps)
             ? model.highLevelSteps
             : solutionFlows[0]?.steps ?? [];
+        // Per-state business sub-steps for a REFramework swimlane: prefer the
+        // analyzer's stateFlows; fall back to deterministic extraction from the code.
+        const stateSteps = (0, flowchart_1.stateStepsFromFlows)(model.stateFlows) ?? (0, flowchart_1.deriveStateSteps)(graph);
         // One centralized decision (renderEntryDiagram): state machine -> code-derived
         // state chart; REFramework -> state swimlane; Flowchart/Sequence -> high-level
         // technical flow. No per-project tuning.
-        const single = (0, flowchart_1.renderEntryDiagram)(model.projectName, graph, steps);
+        const single = (0, flowchart_1.renderEntryDiagram)(model.projectName, graph, steps, stateSteps);
         embedImage(outZip, FLOWCHART_MARKER, 'instadocs-flow.png', single, 9001);
     }
     // The per-process high-level flow section is not required (single or multi).

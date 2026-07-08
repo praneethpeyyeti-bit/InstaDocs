@@ -107,6 +107,14 @@ export interface ProcessGraph {
      */
     layout?: 'statemachine' | 'flowchart' | 'sequence';
     /**
+     * The applications/systems each workflow file actually touches, keyed by the
+     * workflow's lower-cased base name (e.g. "initallapplications"). Derived from
+     * the real URLs / browser types / Excel workbooks / mail / launched apps found
+     * inside that workflow at parse time. Lets the process diagram label each state
+     * box with which application it uses instead of just the workflow file name.
+     */
+    workflowApps?: Record<string, string[]>;
+    /**
      * The actual parsed state machine of the entry workflow, when the root is a
      * StateMachine (e.g. REFramework). Drives a diagram built from the REAL states,
      * transitions and per-state activities — not a canned template.

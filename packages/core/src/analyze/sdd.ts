@@ -300,12 +300,32 @@ function extractJson(raw: string): unknown {
   const attempts = [t, sanitizeControlChars(t), repairJson(sanitizeControlChars(t))];
   for (const a of attempts) {
     try {
-      return JSON.parse(a);
+      return stripNulls(JSON.parse(a));
     } catch {
       /* try the next, more-repaired form */
     }
   }
   throw new Error('Response did not contain valid JSON.');
+}
+
+/**
+ * Recursively drop `null` values from the parsed LLM JSON. zod's `.default()` and
+ * `.optional()` only apply to `undefined`, NOT `null` — so a field the model
+ * emits as `null` (e.g. a top-level module's `"parent": null`) would fail schema
+ * validation on EVERY attempt. Removing nulls lets defaults/optionals kick in.
+ */
+function stripNulls(v: unknown): unknown {
+  if (v === null) return undefined;
+  if (Array.isArray(v)) return v.map(stripNulls).filter((x) => x !== undefined);
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      const nv = stripNulls(val);
+      if (nv !== undefined) out[k] = nv;
+    }
+    return out;
+  }
+  return v;
 }
 
 /** Escape raw control characters (newlines/tabs/etc.) that appear INSIDE JSON strings. */

@@ -157,11 +157,30 @@ function backfill(model: AddModel, graph: ProcessGraph): void {
 function extractJson(raw: string): unknown {
   const t = raw.trim().replace(/^```[a-zA-Z]*\n?|\n?```$/g, '').trim();
   try {
-    return JSON.parse(t);
+    return stripNulls(JSON.parse(t));
   } catch {
     const s = t.indexOf('{');
     const e = t.lastIndexOf('}');
-    if (s >= 0 && e > s) return JSON.parse(t.slice(s, e + 1));
+    if (s >= 0 && e > s) return stripNulls(JSON.parse(t.slice(s, e + 1)));
     throw new Error('Response did not contain valid JSON.');
   }
+}
+
+/**
+ * Drop `null` values so zod `.default()`/`.optional()` apply — the LLM sometimes
+ * emits `null` where the schema expects a string, which would otherwise fail
+ * validation on every attempt.
+ */
+function stripNulls(v: unknown): unknown {
+  if (v === null) return undefined;
+  if (Array.isArray(v)) return v.map(stripNulls).filter((x) => x !== undefined);
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      const nv = stripNulls(val);
+      if (nv !== undefined) out[k] = nv;
+    }
+    return out;
+  }
+  return v;
 }

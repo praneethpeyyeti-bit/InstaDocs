@@ -135,6 +135,24 @@ export declare const SddModelSchema: z.ZodObject<{
         reframework?: boolean | undefined;
         stateMachine?: any;
     }>, "many">>;
+    /**
+     * For a REFramework state-machine project: the real BUSINESS sub-steps of each
+     * state (Initialization / Get Transaction Data / Process Transaction / End
+     * Process), so each swimlane lane shows what the state actually does — "Read
+     * config workbook", "Retrieve Orchestrator assets", "Log in to <app>" — instead
+     * of just the invoked workflow file names. Filled by the analyzer from each
+     * state's real activities + applications. Empty for non-REFramework projects.
+     */
+    stateFlows: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        state: z.ZodString;
+        steps: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        steps: string[];
+        state: string;
+    }, {
+        state: string;
+        steps?: string[] | undefined;
+    }>, "many">>;
     revisions: z.ZodDefault<z.ZodArray<z.ZodObject<{
         rev: z.ZodString;
         date: z.ZodString;
@@ -429,6 +447,10 @@ export declare const SddModelSchema: z.ZodObject<{
         reframework?: boolean | undefined;
         stateMachine?: any;
     }[];
+    stateFlows: {
+        steps: string[];
+        state: string;
+    }[];
     revisions: {
         summary: string;
         role: string;
@@ -556,6 +578,10 @@ export declare const SddModelSchema: z.ZodObject<{
         steps?: string[] | undefined;
         reframework?: boolean | undefined;
         stateMachine?: any;
+    }[] | undefined;
+    stateFlows?: {
+        state: string;
+        steps?: string[] | undefined;
     }[] | undefined;
     revisions?: {
         summary: string;
